@@ -6,4 +6,3 @@ backend/.env
 backend/dist/
 
 frontend/node_modules/
-node_modules/
