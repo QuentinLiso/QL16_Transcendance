@@ -12,7 +12,7 @@ export type Me = {
 
 export type PublicUser = {
   id: number;
-  email: string;
+  pseudo: string;
   avatar_url: string | null;
 };
 

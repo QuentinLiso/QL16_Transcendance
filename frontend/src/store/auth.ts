@@ -8,7 +8,6 @@ import { HttpError } from "../api/http";
 /**
  *
  */
-
 export type AuthState = {
   me: Me | null;
   loading: boolean;
