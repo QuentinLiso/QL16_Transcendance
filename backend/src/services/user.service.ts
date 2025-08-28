@@ -6,6 +6,7 @@ import { err } from "../utils/errors";
 const PSEUDO_MIN = 1;
 const PSEUDO_MAX = 32;
 const isLikelyUrl = (s: string) => /^https?:\/\/.+/i.test(s);
+const DEFAULT_AVATAR_URL = "/user.png";
 
 export function getMe(userId: number): usersModel.MeUserRow | undefined {
   const row = usersModel.getMeById(userId);

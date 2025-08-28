@@ -54,7 +54,7 @@ export async function login(pseudoOrEmail: string, password: string) {
       return;
     }
     const me = await UsersAPI.me();
-    auth.set((s) => ({ ...s, me, twofaRequired: false }));
+    auth.set((s) => ({ ...s, me: { ...me, avatar_url: me.avatar_url ?? "/user.png" }, twofaRequired: false }));
   } catch (e: any) {
     const msg = e instanceof HttpError ? `${e.status}: ${e.message}` : "Login failed";
     auth.set((s) => ({ ...s, error: msg, me: null, twofaRequired: false }));

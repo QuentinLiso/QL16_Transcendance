@@ -27,11 +27,10 @@ const friendRequestCard = (r: FriendRequest) => {
 };
 
 export const FriendsView = (root: HTMLElement) => {
-  const title = domElem("h2", { class: "text-2xl font-semibold mb-4", text: "Friends" });
   const list = domElem("div", { class: "grid md:grid-cols-2 gap-3" });
   const requests = domElem("div", { class: "mt-8" });
 
-  mount(root, title, list, requests);
+  mount(root, list, requests);
   Friends.loadFriends();
   Friends.loadFriendRequests();
 

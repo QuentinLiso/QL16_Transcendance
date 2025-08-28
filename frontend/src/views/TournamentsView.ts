@@ -16,7 +16,6 @@ const createTournamentCard = (t: Tournament) => {
 };
 
 export const TournamentsView = (root: HTMLElement) => {
-  const title = domElem("h2", { class: "text-2xl font-semibold mb-4", text: "Tournaments" });
   const list = domElem("div", { class: "grid md:grid-cols-2 gap-3" });
 
   const bar = domElem("div", { class: "mb-3 flex gap-2" });
@@ -30,7 +29,7 @@ export const TournamentsView = (root: HTMLElement) => {
   });
   bar.appendChild(newBtn);
 
-  mount(root, title, bar, list);
+  mount(root, bar, list);
   tournamentStore.listTournaments();
 
   const unbindTournament = bind(tournamentStore.tournaments, (s) => {

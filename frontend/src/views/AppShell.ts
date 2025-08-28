@@ -1,6 +1,6 @@
 // src/views/AppShell.ts
 import { domElem, mount, bind } from "../ui/DomElement";
-import { Button, IconButton } from "../ui/Button";
+import { Button, IconButton, ImageButton } from "../ui/Button";
 import { Avatar } from "../ui/Avatar";
 import { Icon } from "../ui/Icons";
 import { auth, logout } from "../store/auth";
@@ -18,11 +18,11 @@ function currentPath() {
 
 /** Map route path → human title. Adjust as you add pages. */
 function pageTitleFromPath(path: string) {
+  if (path.startsWith("/play")) return "Play";
+  if (path.startsWith("/leaderboard")) return "Leaderboard";
+  if (path.startsWith("/profile")) return "Profile";
   if (path.startsWith("/chats")) return "Chats";
   if (path.startsWith("/tournaments")) return "Tournaments";
-  if (path.startsWith("/friends")) return "Friends";
-  if (path.startsWith("/profile")) return "Profile";
-  if (path.startsWith("/home")) return "Home";
   return "Transcendance";
 }
 
@@ -76,10 +76,10 @@ const SideBar = () => {
 
   const nav = domElem("nav", { class: "flex flex-col gap-16 mt-40 ml-4 text-gray-400 text-xl" });
   const links = [
-    NavLinkIcon("Play", "/aaa", "fa-house"),
+    NavLinkIcon("Play", "/play", "fa-gamepad"),
     NavLinkIcon("Leaderboard", "/home", "fa-house"),
-    NavLinkIcon("Profile", "/profile", "fa-house"),
-    NavLinkIcon("Chats", "/chats", "fa-house"),
+    NavLinkIcon("Profile", "/profile", "fa-address-card"),
+    NavLinkIcon("Chats", "/chats", "fa-comments"),
     NavLinkIcon("Tournaments", "/tournaments", "fa-trophy"),
   ];
   links.forEach((l) => nav.appendChild(l.el));
@@ -125,9 +125,11 @@ const TopBar = () => {
   );
 
   // User avatar (click → profile)
-  const avatarBtn = Button("", { onClick: () => (location.hash = "/profile") });
-  const userAvatar = Avatar(null, 28);
-  mount(avatarBtn, userAvatar);
+  const avatarBtn = ImageButton(auth.get().me?.avatar_url ?? "/user.png", "Avatar", {
+    onClick: () => (location.hash = "/profile"),
+    size: 32,
+    variant: "circle",
+  });
 
   actions.append(searchBtn, langBtn, avatarBtn);
   row.append(title, actions);
@@ -142,7 +144,7 @@ const TopBar = () => {
   // expose hooks to update avatar & cleanup
   return {
     wrap,
-    userAvatar,
+    avatarBtn,
     unbind() {
       window.removeEventListener("hashchange", onHash);
     },
@@ -197,12 +199,12 @@ export function AppShell(child: View) {
     root.appendChild(layout);
 
     // Mount : set up bindings and child view
-    const unbindAuth = bindAuth(mainArea.topBar.userAvatar);
+    // const unbindAuth = bindAuth(mainArea.topBar.userAvatar);
     const unmountChild = child(mainArea.outlet, params);
 
     // Unmount : clean up in reverse order
     return () => {
-      unbindAuth();
+      //   unbindAuth();
       unmountChild();
     };
   };

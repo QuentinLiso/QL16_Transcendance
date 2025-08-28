@@ -51,13 +51,40 @@ export function IconButton(faSrc: string, alt: string, onClick: () => void, titl
   return btn;
 }
 
-export function ImageButton(url: string, alt: string, onClick: () => void, title?: string) {
+export function ImageButton(
+  imgSrc: string,
+  alt: string,
+  options: {
+    onClick?: (e: MouseEvent) => void;
+    size?: number; // px — defaults to 36
+    variant?: "plain" | "ghost" | "circle"; // style flavors
+    title?: string;
+  } = {}
+) {
+  const { onClick, size = 36, variant = "plain", title } = options;
+
+  const variants = {
+    plain: "rounded-xl border border-gray-200 hover:bg-slate-100 transition",
+    ghost: "rounded-xl hover:bg-slate-100 transition",
+    circle: "rounded-full hover:ring-2 hover:ring-indigo-500 transition",
+  };
+
   const btn = domElem("button", {
-    class: "rounded-xl p-2 hover:bg-slate-100 transition inline-grid place-items-center",
-    attributes: { type: "button", title: title ?? alt, "aria-label": alt },
+    class: `inline-grid place-items-center ${variants[variant]}`,
+    attributes: {
+      type: "button",
+      title: title ?? alt,
+      "aria-label": alt,
+      style: `width:${size}px;height:${size}px;`,
+    },
   });
-  const logo = domElem("img", { attributes: {} });
-  btn.appendChild(logo);
-  btn.addEventListener("click", onClick);
+
+  const img = domElem("img", {
+    class: "w-full h-full object-contain",
+    attributes: { src: imgSrc, alt },
+  });
+
+  btn.appendChild(img);
+  if (onClick) btn.addEventListener("click", onClick);
   return btn;
 }
