@@ -1,6 +1,6 @@
 // src/api/users.ts
-import { getRequest, putRequest, deleteRequest } from "./http";
-import type { Me, PublicUser, Match } from "./types";
+import { getRequest, putRequest, deleteRequest, putForm } from "./http";
+import type { Me, PublicUser, Match, UserStats } from "./types";
 
 export const UsersAPI = {
   /**
@@ -18,8 +18,10 @@ export const UsersAPI = {
   /**
    * PUT /api/users/me/avatar -> set/replace avatar (url based in the backend)
    */
-  uploadAvatar: (avatar_url: string) => {
-    return putRequest<Me>("/api/users/me", { avatar_url });
+  uploadAvatar: (avatar: File) => {
+    const form = new FormData();
+    form.append("avatar", avatar);
+    return putForm<Me>("/api/users/me/avatar", form);
   },
 
   /**
@@ -38,6 +40,11 @@ export const UsersAPI = {
   listUserMatches: (userId: number, limit = 50, offset = 0) => {
     return getRequest<{ matches: Match[]; limit: number; offset: number }>(`/api/users/${userId}/matches`, { limit, offset });
   },
+
+  /**
+   * GET /api/users/:id/stats
+   */
+  getStats: (userId: number) => getRequest<UserStats>(`/api/users/${userId}/stats`),
 
   /**
    * GET /api/users/search?q&limit&offset -> { users, limit, offset }

@@ -11,6 +11,7 @@ export const usersRoutes: FastifyPluginAsync = async function (fastify: FastifyI
   fastify.get("/search", userController.searchForUser); // search for users
   fastify.get("/:id", userController.getPublicProfile); // another user's public profile
   fastify.get("/:id/matches", userController.getUserMatchHistory); // match history of a user
+  fastify.get("/:id/stats", userController.getUserStats);
 
   //   fastify.fastify.get("/all", userController.getAllUsers);
 };

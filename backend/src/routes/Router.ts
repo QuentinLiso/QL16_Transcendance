@@ -11,6 +11,7 @@ import cors from "../plugins/cors";
 import authJwt from "../plugins/auth-jwt";
 import errorHandler from "../plugins/error-handler";
 import oauthProviders from "../plugins/oauth-providers";
+import fileUpload from "../plugins/file-upload";
 
 import { usersRoutes } from "../routes/user.routes";
 import { authRoutesPublic, authRoutesPending, authRoutesPrivate } from "../routes/auth.routes";
@@ -26,6 +27,7 @@ export function setRouter(fastify: FastifyInstance) {
   fastify.register(authJwt);
   fastify.register(errorHandler);
   fastify.register(oauthProviders);
+  fastify.register(fileUpload);
 
   // 2) Public routes
   fastify.register(authRoutesPublic, { prefix: "/api/auth" });

@@ -4,6 +4,9 @@ import { Button, IconButton, ImageButton } from "../ui/Button";
 import { Avatar } from "../ui/Avatar";
 import { Icon } from "../ui/Icons";
 import { auth, logout } from "../store/auth";
+import { loadUser, usersIndex } from "../store/usersIndex";
+import { users } from "../store/users";
+import type { PublicUser } from "../api/types";
 
 /**
  * A View mounts into a host and returns an unmount function
@@ -54,16 +57,6 @@ function NavLinkIcon(label: string, href: string, faClass: string) {
   return { el: a, unbind: () => window.removeEventListener("hashchange", onHash) };
 }
 
-/* ------------------ User box (sidebar bottom) ------------------ */
-
-const UserBox = () => {
-  const box = domElem("div", { class: "mt-auto flex items-center gap-3 p-2 rounded-xl bg-gray-50" });
-  const avatar = Avatar(null, 36);
-  const name = domElem("div", { class: "text-sm" });
-  box.append(avatar, name);
-  return { box, avatar, name };
-};
-
 /**
  * Left sidebar with brand, nav, user and logout
  */
@@ -84,21 +77,20 @@ const SideBar = () => {
   ];
   links.forEach((l) => nav.appendChild(l.el));
 
-  const userBox = UserBox();
   const logoutBtn = Button("Logout", { variant: "danger", onClick: () => logout() });
 
-  box.append(brandBox, nav, userBox.box, logoutBtn);
+  box.append(brandBox, nav, logoutBtn);
 
   // expose cleanup to remove hash listeners on links
   const unbind = () => links.forEach((l) => l.unbind());
-  return { box, userBox, unbind };
+  return { box, unbind };
 };
 
 /**
  * Top Bar
  */
-const TopBar = () => {
-  const wrap = domElem("div", { class: "sticky top-3 bg-transparent text-2xl font-bold text-emerald-700 z-10" });
+const TopBar = (me: PublicUser) => {
+  const wrap = domElem("div", { class: "sticky top-3 bg-emerald-100 text-2xl font-bold text-emerald-700 z-10" });
   const row = domElem("div", { class: "h-14 px-8 flex items-center justify-between" });
 
   // Left: dynamic title
@@ -125,7 +117,7 @@ const TopBar = () => {
   );
 
   // User avatar (click → profile)
-  const avatarBtn = ImageButton(auth.get().me?.avatar_url ?? "/user.png", "Avatar", {
+  const avatarBtn = ImageButton("/user.png", "Avatar", {
     onClick: () => (location.hash = "/profile"),
     size: 32,
     variant: "circle",
@@ -141,12 +133,15 @@ const TopBar = () => {
   };
   window.addEventListener("hashchange", onHash);
 
+  const avatarImage = avatarBtn.querySelector("img") as HTMLImageElement;
+  const unbindAvatar = bindMeAvatar(avatarImage, me);
   // expose hooks to update avatar & cleanup
   return {
     wrap,
     avatarBtn,
     unbind() {
       window.removeEventListener("hashchange", onHash);
+      unbindAvatar();
     },
   };
 };
@@ -154,9 +149,9 @@ const TopBar = () => {
 /**
  * Main area with an outlet where child views render
  */
-const MainArea = () => {
+const MainArea = (me: PublicUser) => {
   const box = domElem("main", { class: "flex-1 flex flex-col overflow-auto" });
-  const topBar = TopBar();
+  const topBar = TopBar(me);
   const outlet = domElem("div", { class: "px-8 py-8" });
   mount(box, topBar.wrap, outlet);
   return { box, outlet, topBar };
@@ -165,22 +160,18 @@ const MainArea = () => {
 /**
  * Subscribe UI to auth store; returns an unbind function
  */
-const bindAuth = (avatarEl: HTMLDivElement) => {
-  return bind(auth, (s) => {
-    const url = s.me?.avatar_url ?? "/user.png";
+const bindMeAvatar = (avatarImage: HTMLImageElement, me: PublicUser) => {
+  const update = () => {
+    avatarImage.src = me?.avatar_url ?? "/user.png";
+  };
+  update();
 
-    let img = avatarEl.querySelector("img") as HTMLImageElement | null;
-    if (url) {
-      if (!img) {
-        img = document.createElement("img");
-        img.className = "w-full h-full object-cover";
-        avatarEl.appendChild(img);
-      }
-      img.src = url;
-    } else if (img) {
-      img.remove();
-    }
-  });
+  const stopAuth = bind(auth, update);
+  const stopUsers = bind(usersIndex, update);
+  return () => {
+    stopAuth();
+    stopUsers();
+  };
 };
 
 /**
@@ -191,20 +182,21 @@ export function AppShell(child: View) {
   return (root: HTMLElement, params: Record<string, string>) => {
     root.className = "min-h-screen bg-emerald-100 text-slate-800";
 
+    const meId = auth.get().meId as number;
+    const me = usersIndex.get().byId[meId];
+
     const layout = domElem("div", { class: "h-screen flex" });
     const sideBar = SideBar();
-    const mainArea = MainArea();
+    const mainArea = MainArea(me);
 
     mount(layout, sideBar.box, mainArea.box);
     root.appendChild(layout);
 
     // Mount : set up bindings and child view
-    // const unbindAuth = bindAuth(mainArea.topBar.userAvatar);
     const unmountChild = child(mainArea.outlet, params);
 
     // Unmount : clean up in reverse order
     return () => {
-      //   unbindAuth();
       unmountChild();
     };
   };

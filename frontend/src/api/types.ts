@@ -16,6 +16,16 @@ export type PublicUser = {
   avatar_url: string | null;
 };
 
+export type UserStats = {
+  user_id: number;
+  wins: number;
+  losses: number;
+  games_played: number;
+  win_ratio: number;
+  total_score: number;
+  best_score: number;
+};
+
 export type FriendRequest = {
   id: number;
   from_user_id: number;

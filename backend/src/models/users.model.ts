@@ -36,8 +36,8 @@ export function getMeById(id: number): MeUserRow | undefined {
   return selectMeById.get(id) as MeUserRow | undefined;
 }
 
-export function updateMeProfile(userId: number, pseudo?: string, avatarUrl?: string) {
-  return updateProfileQuery.get(pseudo ?? null, avatarUrl ?? null, userId) as {
+export function updateMeProfile(userId: number, input: { pseudo?: string; avatarUrl?: string }) {
+  return updateProfileQuery.get(input?.pseudo ?? null, input?.avatarUrl ?? null, userId) as {
     id: number;
     email: string;
     pseudo: string;

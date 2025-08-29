@@ -2,6 +2,7 @@
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
 import * as authModel from "../models/auth.model";
+import { createNewUserStats } from "../models/user_stats.model";
 import { err } from "../utils/errors";
 import { authenticator } from "otplib";
 import QRCode from "qrcode";
@@ -23,6 +24,7 @@ export async function register(input: { email: string; pseudo: string; password:
   try {
     const { id } = authModel.createUser(email, pseudo, hash);
     if (!id) throw err("USER_ALREADY_EXISTS");
+    createNewUserStats(id);
     return { id };
   } catch (e: any) {
     throw err("USER_ALREADY_EXISTS");
@@ -51,6 +53,7 @@ async function findOrCreateOAuthUser(email: string, preferredPseudo: string) {
   const pseudo = (preferredPseudo ?? email.split("@")[0]).replace(/[^a-z0-9_]/gi, "").slice(0, 24);
   const pseudoSuffix = `${pseudo}_${crypto.randomBytes(4).toString("hex")}`;
   const { id } = authModel.createUser(email, pseudoSuffix, pwdHash);
+  createNewUserStats(id);
   return { id, email, pseudoSuffix };
 }
 

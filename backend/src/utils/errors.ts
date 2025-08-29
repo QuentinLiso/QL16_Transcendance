@@ -20,6 +20,7 @@ export const CODES = {
   BAD_USER_ID: { status: 400, message: "Invalid user id" },
   INVALID_CREDENTIALS: { status: 401, message: "Invalid credentials" },
   MISSING_AVATAR_URL: { status: 400, message: "avatar_url required" },
+  UNSUPPORTED_IMAGE_TYPE: { status: 400, message: "Unsupported image type" },
   OAUTH_EMAIL_REQUIRED: { status: 400, message: "OAuth email required" },
   TWOFA_SETUP_REQUIRED: { status: 401, message: "2FA setup pending or expired" },
   TWOFA_INVALID_CODE: { status: 401, message: "Invalid 2FA code" },

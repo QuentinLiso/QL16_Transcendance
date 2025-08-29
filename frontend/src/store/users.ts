@@ -42,10 +42,10 @@ export async function updateMe(input: { pseudo?: string; avatar_url?: string | n
 /**
  * Uploading avatar
  */
-export async function uploadAvatar(url: string) {
+export async function uploadAvatarFile(file: File) {
   users.set((s) => ({ ...s, meUpdating: true }));
   try {
-    const me: Me = await UsersAPI.uploadAvatar(url);
+    const me: Me = await UsersAPI.uploadAvatar(file);
     const { auth } = await import("./auth");
     auth.set((s) => ({ ...s, me }));
   } finally {

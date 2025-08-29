@@ -4,19 +4,20 @@ import { AuthAPI } from "../api/auth";
 import { UsersAPI } from "./../api/users";
 import type { Me } from "../api/types";
 import { HttpError } from "../api/http";
+import { loadUser } from "./usersIndex";
 
 /**
  *
  */
 export type AuthState = {
-  me: Me | null;
+  meId: number | null;
   loading: boolean;
   twofaRequired: boolean;
   error: string | null;
 };
 
 export const auth = createStore<AuthState>({
-  me: null,
+  meId: null,
   loading: true,
   twofaRequired: false,
   error: null,
@@ -29,7 +30,7 @@ export async function bootstrapSession() {
   auth.set((s) => ({ ...s, loading: true, error: null }));
   try {
     const me = await UsersAPI.me();
-    auth.set((s) => ({ ...s, me: me, loading: false }));
+    auth.set((s) => ({ ...s, meId: me.id, loading: false }));
   } catch {
     auth.set((s) => ({ ...s, me: null, loading: false }));
   }
@@ -54,7 +55,8 @@ export async function login(pseudoOrEmail: string, password: string) {
       return;
     }
     const me = await UsersAPI.me();
-    auth.set((s) => ({ ...s, me: { ...me, avatar_url: me.avatar_url ?? "/user.png" }, twofaRequired: false }));
+    auth.set((s) => ({ ...s, me: me.id, twofaRequired: false }));
+    loadUser(me.id);
   } catch (e: any) {
     const msg = e instanceof HttpError ? `${e.status}: ${e.message}` : "Login failed";
     auth.set((s) => ({ ...s, error: msg, me: null, twofaRequired: false }));
@@ -79,7 +81,7 @@ export async function logout() {
 export async function verify2faLogin(code: string) {
   await AuthAPI.verify2faLogin(code);
   const me = await UsersAPI.me();
-  auth.set((s) => ({ ...s, me, twofaRequired: false }));
+  auth.set((s) => ({ ...s, me: me.id, twofaRequired: false }));
 }
 
 /**

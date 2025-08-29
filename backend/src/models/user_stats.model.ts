@@ -39,6 +39,10 @@ export function getStats(userId: number): UserStatsRow | undefined {
   return selectStats.get(userId) as UserStatsRow | undefined;
 }
 
+export function createNewUserStats(userId: number) {
+  upsertNewUser.run(userId);
+}
+
 export function applyMatchResultDelta(args: { winnerId: number; loserId: number; winnerScore: number; loserScore: number }) {
   const { winnerId, loserId, winnerScore, loserScore } = args;
 

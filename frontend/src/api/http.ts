@@ -12,7 +12,8 @@
  * In dev we can leave this empty and rely on Vite proxy
  * In prod, set VITE_API_BASE to the domain
  */
-export const API_BASE = (import.meta as any)?.env?.VITE_API_BASE ?? "";
+// export const API_BASE = (import.meta as any)?.env?.VITE_API_BASE ?? "";
+export const API_BASE = "http://localhost:5000";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public body?: unknown) {
@@ -87,4 +88,11 @@ export function putRequest<T>(path: string, json?: any) {
 
 export function deleteRequest<T>(path: string) {
   return http<T>(path, { method: "DELETE" });
+}
+
+export function putForm<T>(path: string, form: FormData) {
+  return http<T>(path, {
+    method: "PUT",
+    body: form,
+  });
 }
