@@ -427,10 +427,12 @@ export function TournamentsView(root: HTMLElement) {
           roster.append(h("div", { class: "text-emerald-900/60 text-sm", text: "Only first 8 will be seeded." }));
         }
       }
-      const canSeed = state.players.length === 2 || state.players.length === 4 || state.players.length === 8;
+      const canSeed = (state.players.length === 2 || state.players.length === 4 || state.players.length === 8) && state.bracket == null;
+      const canShuffle = state.players.length > 2 && state.bracket == null;
+      const canReset = state.players.length !== 0 && state.bracket == null;
       seedBtn.toggleAttribute("disabled", !canSeed);
-      shuffleBtn.toggleAttribute("disabled", state.players.length < 2);
-      resetBtn.toggleAttribute("disabled", state.players.length === 0);
+      shuffleBtn.toggleAttribute("disabled", !canShuffle);
+      resetBtn.toggleAttribute("disabled", !canReset);
       cancelBtn.toggleAttribute("disabled", state.bracket == null);
     }
 
