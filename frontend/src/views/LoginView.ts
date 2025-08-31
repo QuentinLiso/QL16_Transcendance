@@ -1,10 +1,9 @@
 // src/views/LoginView.ts
 import { domElem, mount, bind } from "../ui/DomElement";
-import { Card } from "../ui/Card";
 import { Button } from "../ui/Button";
 import { LabeledInput } from "../ui/Input";
 import { Icon } from "../ui/Icons";
-import { auth, register, login, verify2faLogin } from "../store/auth";
+import { auth, register, login, verify2faLogin } from "../store/auth.store";
 import { AuthAPI } from "../api/auth";
 
 type Mode = "menu" | "login" | "register" | "twofa";

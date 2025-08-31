@@ -7,6 +7,7 @@ export type Me = {
   id: number;
   email: string;
   pseudo: string;
+  is_2fa_enabled: 0 | 1;
   avatar_url: string | null;
 };
 
@@ -64,6 +65,13 @@ export type Match = {
   score_P1: number | null;
   score_P2: number | null;
   created_at: string;
+};
+
+export type UserMatches = {
+  userId: number;
+  matches: Match[];
+  limit: number;
+  offset: number;
 };
 
 export type Tournament = {

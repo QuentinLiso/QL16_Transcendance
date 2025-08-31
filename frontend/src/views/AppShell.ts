@@ -3,9 +3,8 @@ import { domElem, mount, bind } from "../ui/DomElement";
 import { Button, IconButton, ImageButton } from "../ui/Button";
 import { Avatar } from "../ui/Avatar";
 import { Icon } from "../ui/Icons";
-import { auth, logout } from "../store/auth";
-import { loadUser, usersIndex } from "../store/usersIndex";
-import { users } from "../store/users";
+import { auth, logout } from "../store/auth.store";
+import { loadUser, usersIndex } from "../store/usersIndex.store";
 import type { PublicUser } from "../api/types";
 
 /**
@@ -22,7 +21,6 @@ function currentPath() {
 /** Map route path → human title. Adjust as you add pages. */
 function pageTitleFromPath(path: string) {
   if (path.startsWith("/play")) return "Play";
-  if (path.startsWith("/leaderboard")) return "Leaderboard";
   if (path.startsWith("/profile")) return "Profile";
   if (path.startsWith("/chats")) return "Chats";
   if (path.startsWith("/tournaments")) return "Tournaments";
@@ -61,16 +59,15 @@ function NavLinkIcon(label: string, href: string, faClass: string) {
  * Left sidebar with brand, nav, user and logout
  */
 const SideBar = () => {
-  const box = domElem("aside", { class: "w-64 bg-white border-r border-gray-100 p-4 flex flex-col gap-4" });
+  const wrap = domElem("aside", { class: "h-full w-64 bg-white border-r border-gray-100 p-4 flex flex-col gap-4 justify-between" });
 
   const brandBox = domElem("div", { class: "flex flex-row items-center gap-3" });
   const brand = domElem("div", { class: "text-xl font-semibold text-teal-600", text: "Transcendance" });
   mount(brandBox, Icon("/ping-pong.png", "Transcendance logo"), brand);
 
-  const nav = domElem("nav", { class: "flex flex-col gap-16 mt-40 ml-4 text-gray-400 text-xl" });
+  const nav = domElem("nav", { class: "flex flex-col gap-16 text-gray-400 text-xl pl-6 -mt-30" });
   const links = [
     NavLinkIcon("Play", "/play", "fa-gamepad"),
-    NavLinkIcon("Leaderboard", "/home", "fa-house"),
     NavLinkIcon("Profile", "/profile", "fa-address-card"),
     NavLinkIcon("Chats", "/chats", "fa-comments"),
     NavLinkIcon("Tournaments", "/tournaments", "fa-trophy"),
@@ -79,11 +76,11 @@ const SideBar = () => {
 
   const logoutBtn = Button("Logout", { variant: "danger", onClick: () => logout() });
 
-  box.append(brandBox, nav, logoutBtn);
+  wrap.append(brandBox, nav, logoutBtn);
 
   // expose cleanup to remove hash listeners on links
   const unbind = () => links.forEach((l) => l.unbind());
-  return { box, unbind };
+  return { wrap, unbind };
 };
 
 /**
@@ -189,7 +186,7 @@ export function AppShell(child: View) {
     const sideBar = SideBar();
     const mainArea = MainArea(me);
 
-    mount(layout, sideBar.box, mainArea.box);
+    mount(layout, sideBar.wrap, mainArea.box);
     root.appendChild(layout);
 
     // Mount : set up bindings and child view

@@ -1,6 +1,6 @@
 // src/api/users.ts
 import { getRequest, putRequest, deleteRequest, putForm } from "./http";
-import type { Me, PublicUser, Match, UserStats } from "./types";
+import type { Me, PublicUser, UserStats, UserMatches } from "./types";
 
 export const UsersAPI = {
   /**
@@ -11,7 +11,7 @@ export const UsersAPI = {
   /**
    * PUT /api/users/me -> update pseudo and/or avatar_url
    */
-  updateMe: (input: { pseudo?: string; avatar_url?: string | null }) => {
+  updateMe: (input: { pseudo?: string; email?: string }) => {
     return putRequest<Me>("/api/users/me", input);
   },
 
@@ -38,7 +38,7 @@ export const UsersAPI = {
    * GET /api/users/:id/matches?limit&offset -> { matches, limit offset }
    */
   listUserMatches: (userId: number, limit = 50, offset = 0) => {
-    return getRequest<{ matches: Match[]; limit: number; offset: number }>(`/api/users/${userId}/matches`, { limit, offset });
+    return getRequest<UserMatches>(`/api/users/${userId}/matches`, { limit, offset });
   },
 
   /**

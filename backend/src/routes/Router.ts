@@ -12,6 +12,7 @@ import authJwt from "../plugins/auth-jwt";
 import errorHandler from "../plugins/error-handler";
 import oauthProviders from "../plugins/oauth-providers";
 import fileUpload from "../plugins/file-upload";
+import tinyLogger from "../plugins/tinyLogger";
 
 import { usersRoutes } from "../routes/user.routes";
 import { authRoutesPublic, authRoutesPending, authRoutesPrivate } from "../routes/auth.routes";
@@ -28,6 +29,10 @@ export function setRouter(fastify: FastifyInstance) {
   fastify.register(errorHandler);
   fastify.register(oauthProviders);
   fastify.register(fileUpload);
+  fastify.register(tinyLogger, {
+    showCookies: false, // flip to false if you don’t want cookies logged
+    bodyLimit: 400, // adjust truncation
+  });
 
   // 2) Public routes
   fastify.register(authRoutesPublic, { prefix: "/api/auth" });

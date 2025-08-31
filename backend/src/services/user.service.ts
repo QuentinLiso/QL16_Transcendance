@@ -29,9 +29,15 @@ export function getMe(userId: number): usersModel.MeUserRow | undefined {
   return row;
 }
 
-export function updateMeProfile(userId: number, input: { pseudo?: string }) {
+export function updateMeProfile(userId: number, input: { email?: string; pseudo?: string }) {
   // Normalize
+  const email = typeof input.email === "string" ? input.email.trim() : undefined;
   const pseudo = typeof input.pseudo === "string" ? input.pseudo.trim() : undefined;
+
+  // Validate email if provided
+  if (email !== undefined) {
+    if (email.length < 1 || email.length > 64) throw err("BAD_EMAIL");
+  }
 
   // Validate pseudo if provided
   if (pseudo !== undefined) {
@@ -39,7 +45,7 @@ export function updateMeProfile(userId: number, input: { pseudo?: string }) {
   }
 
   try {
-    const updated = usersModel.updateMeProfile(userId, { pseudo: pseudo ?? "Unnamed" });
+    const updated = usersModel.updateMeProfile(userId, { email: email as string, pseudo: pseudo as string });
     return {
       id: updated.id,
       email: updated.email,

@@ -3,7 +3,7 @@ import "./styles/tailwind.css";
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import { Router } from "./router/router";
 import { Routes, guard } from "./router/routes";
-import { bootstrapSession } from "./store/auth";
+import { bootstrapSession } from "./store/auth.store";
 
 const app = document.getElementById("app") as HTMLElement;
 

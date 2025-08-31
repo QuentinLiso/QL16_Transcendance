@@ -16,8 +16,8 @@ export async function getMeProfile(req: FastifyRequest, rep: FastifyReply) {
 
 export async function updateMeProfile(req: FastifyRequest, rep: FastifyReply) {
   const meId = Number((req.user as any).sub);
-  const { pseudo } = (req.body as any) ?? {};
-  const updated = userService.updateMeProfile(meId, { pseudo });
+  const { pseudo, email } = (req.body as any) ?? {};
+  const updated = userService.updateMeProfile(meId, { pseudo, email });
   return rep.send(updated);
 }
 
@@ -56,7 +56,7 @@ export async function getUserMatchHistory(req: FastifyRequest, rep: FastifyReply
   if (!Number.isInteger(offset)) throw err("BAD_OFFSET");
 
   const rows = userService.listUserMatches(userId, limit, offset);
-  return rep.send({ matches: rows, limit, offset });
+  return rep.send({ userId, matches: rows, limit, offset });
 }
 
 export async function getUserStats(req: FastifyRequest, rep: FastifyReply) {

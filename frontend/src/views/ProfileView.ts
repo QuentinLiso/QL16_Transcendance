@@ -1,15 +1,12 @@
 // src/views/ProfileView.ts
 import { domElem, mount, bind } from "../ui/DomElement";
-import { auth } from "../store/auth";
-import { usersIndex } from "../store/usersIndex";
-import { userStats, loadUserStats } from "../store/usersStats";
+import { auth } from "../store/auth.store";
+import { usersIndex, loadUser } from "../store/usersIndex.store";
+import { userStats, loadUserStats } from "../store/usersStats.store";
 
-import { updateMe, uploadAvatarFile, deleteAvatar } from "../store/users";
 import { createSplashScreen } from "../ui/SplashScreen";
-import { Button } from "../ui/Button";
-import { LabeledInput } from "../ui/Input";
-import { Avatar } from "../ui/Avatar";
-import { UsersAPI } from "../api/users";
+import { ProfileEditForm, type ProfileEditInitial, type ProfileEditPayload } from "./ProfileEditForm";
+import { saveMyProfile, deleteAvatar } from "../store/editProfile.store";
 
 const TITLE_CLASSES = "text-teal-600 text-lg font-extrabold";
 const SHARED_CLASSES = "rounded-lg bg-slate-50 backdrop-blur shadow-sm hover:shadow-md transition p-4 overflow-hidden";
@@ -158,173 +155,6 @@ const LeaderboardCard = () => {
   return box;
 };
 
-const ProfileEditForm = (onDone: () => void) => {
-  const wrap = domElem("form", { class: "flex flex-col gap-4" });
-
-  // Fields
-  const nameField = LabeledInput("Name");
-  const emailField = LabeledInput("Email");
-  //   const twoFfa = TwoFaSetup();
-
-  // File picker
-  const fileRow = domElem("div", { class: "flex items-center gap-3" });
-  const pickBtn = Button("Choose image...", { variant: "ghost" });
-  const hint = domElem("span", { class: "text-sm text-slate-500" });
-  const fileInput = domElem("input", { attributes: { type: "file", accept: "image/*" }, class: "hidden" });
-
-  pickBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    (fileInput as HTMLInputElement).click();
-  });
-
-  fileInput.addEventListener("change", async () => {
-    const file = (fileInput as HTMLInputElement).files?.[0];
-    if (!file) return;
-    hint.textContent = "Uploading...";
-    pickBtn.setAttribute("disabled", "true");
-    try {
-      await UsersAPI.uploadAvatar(file);
-      hint.textContent = "Uploaded :)";
-    } catch (e: any) {
-      hint.textContent = "Upload failed";
-      hint.classList.replace("text-slate-500", "text-rose-600");
-    } finally {
-      pickBtn.removeAttribute("disabled");
-      setTimeout(() => {
-        if (hint.textContent?.startsWith("Uploaded")) hint.textContent = "";
-      }, 1200);
-    }
-  });
-
-  mount(fileRow, pickBtn, hint, fileInput);
-
-  // Buttons
-  const actions = domElem("div", { class: "flex items-center justify-end gap-2 pt-2" });
-  const cancelBtn = Button("Cancel", {
-    variant: "ghost",
-    onClick: (e) => {
-      e.preventDefault();
-      onDone();
-    },
-  });
-  const saveBtn = Button("Save Changes", { variant: "primary", type: "submit" });
-  mount(actions, cancelBtn, saveBtn);
-
-  // Bind current values
-  const unbind = bind(auth, (s) => {
-    nameField.input.value = s.me?.pseudo ?? "";
-    emailField.input.value = s.me?.email ?? "";
-  });
-
-  // Submit
-  wrap.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    saveBtn.setAttribute("disabled", "true");
-
-    try {
-      const pseudo = nameField.input.value.trim();
-      // const email = emailField.input.value.trim();
-
-      if (pseudo && pseudo !== auth.get().me?.pseudo) await updateMe({ pseudo });
-      // if (email && email !== auth.get().me?.email) await updateMe({email});
-      onDone();
-    } finally {
-      saveBtn.removeAttribute("disabled");
-    }
-  });
-
-  // Mount everything
-  mount(wrap, fileRow, nameField.labelWrapper, emailField.labelWrapper, actions);
-  return { wrap, dispose: () => unbind() };
-};
-
-const ProfileCard = () => {
-  const user = {
-    username: "PlayerOne",
-    email: "player@example.com",
-    avatar_url: "/user.png",
-    twofa_enabled: false,
-  };
-
-  const box = domElem("div", { class: "rounded-lg bg-slate-50 backdrop-blur shadow-sm hover:shadow-md transition overflow-hidden flex flex-col" });
-
-  // Top: gradient header (~1/3 height)
-  const header = domElem("div", {
-    class: "h-44 sm:h-60 bg-gradient-to-r from-teal-700 to-emerald-300 p-4 flex flex-col justify-center items-center gap-6",
-  });
-  const avatar = domElem("img", {
-    class: "w-14 h-14 sm:w-16 sm:h-16 rounded-full ring-2 ring-white/70 object-cover",
-    attributes: {
-      src: user.avatar_url || DEFAULT_AVATAR,
-      alt: user.username,
-    },
-  });
-  const uname = domElem("div", {
-    class: "text-white font-semibold text-lg sm:text-xl",
-    text: user.username,
-  });
-  mount(header, avatar, uname);
-
-  // Bottom: details + button pinned at bottom
-  const body = domElem("div", { class: "p-6 flex-1 flex flex-col gap-4" });
-
-  // Row: email
-  const emailRow = domElem("div", {
-    class: "flex items-center justify-between",
-  });
-  const emailLabel = domElem("span", {
-    class: "text-lg text-zinc-400",
-    text: "Email",
-  });
-  const emailValue = domElem("span", {
-    class: "text-lg font-medium text-teal-600 truncate max-w-[60%] text-right",
-    text: user.email,
-  });
-  mount(emailRow, emailLabel, emailValue);
-
-  // Row: 2FA status
-  const twofaRow = domElem("div", { class: "flex items-center justify-between" });
-  const twofaLabel = domElem("span", { class: "text-lg text-zinc-400", text: "2FA" });
-  const twofaBadge = domElem("span", {
-    class: `inline-flex items-center px-2 py-0.5 rounded-full text-lg border ${
-      user.twofa_enabled ? "border-emerald-500/50 text-emerald-500 bg-emerald-600/15" : "border-rose-600 text-rose-600 bg-rose-200"
-    }`,
-    text: user.twofa_enabled ? "Enabled" : "Disabled",
-  });
-  mount(twofaRow, twofaLabel, twofaBadge);
-
-  // Spacer so the button hugs the bottom
-  const spacer = domElem("div", { class: "flex-1" });
-
-  // Edit profile button
-  const editBtn = domElem("button", {
-    class: "text-gray-400 hover:text-teal-600 text-lg font-bold mouse-pointer",
-    text: "Edit profile",
-  });
-  editBtn.append(domElem("i", { class: "ml-3 fa-solid fa-edit" }));
-
-  const editProfileMenu = createSplashScreen("Edit Profile");
-  document.body.appendChild(editProfileMenu.backdrop);
-
-  const unbind = bind(auth, (s) => {
-    const me = s.me;
-    uname.textContent = me?.pseudo ?? "...";
-    emailValue.textContent = me?.email ?? "...";
-    const src = me?.avatar_url || DEFAULT_AVATAR;
-    if (avatar.getAttribute("src") !== src) avatar.setAttribute("src", src);
-  });
-
-  editBtn.addEventListener("click", () => {
-    const form = ProfileEditForm(() => editProfileMenu.close());
-    editProfileMenu.setContent(form.wrap);
-    editProfileMenu.open();
-  });
-  mount(body, emailRow, twofaRow, spacer, editBtn);
-
-  mount(box, header, body);
-  return box;
-};
-
 const LatestMatchCard = () => {
   const { box, slot } = Card("Latest Match", { minH: "min-h-10" });
 
@@ -379,7 +209,140 @@ const LatestMatchCard = () => {
   return box;
 };
 
-export const ProfileView = (root: HTMLElement) => {
+const ProfileCard = () => {
+  const box = domElem("div", { class: "rounded-lg bg-slate-50 backdrop-blur shadow-sm hover:shadow-md transition overflow-hidden flex flex-col" });
+
+  // Top: gradient header (~1/3 height)
+  const header = domElem("div", { class: "h-44 sm:h-60 bg-gradient-to-r from-teal-700 to-emerald-300 p-4 flex flex-col justify-center items-center gap-6" });
+  const avatar = domElem("img", {
+    class: "w-14 h-14 sm:w-16 sm:h-16 rounded-full ring-2 ring-white/70 object-cover",
+    attributes: {
+      src: DEFAULT_AVATAR,
+      alt: "avatar",
+    },
+  });
+  const uname = domElem("div", { class: "text-white font-semibold text-lg sm:text-xl", text: "Pseudo" });
+  mount(header, avatar, uname);
+
+  // Bottom: details + button pinned at bottom
+  const body = domElem("div", { class: "p-6 flex-1 flex flex-col gap-4" });
+
+  // Row: email
+  const emailRow = domElem("div", { class: "flex items-center justify-between" });
+  const emailLabel = domElem("span", { class: "text-lg text-zinc-400", text: "Email" });
+  const emailValue = domElem("span", { class: "text-lg font-medium text-teal-600 truncate max-w-[60%] text-right", text: "Email" });
+  mount(emailRow, emailLabel, emailValue);
+
+  // Row: 2FA status
+  const twofaRow = domElem("div", { class: "flex items-center justify-between" });
+  const twofaLabel = domElem("span", {
+    class: "text-lg text-zinc-400",
+    text: "2FA",
+  });
+
+  const BADGE_BASE = "inline-flex items-center px-2 py-0.5 rounded-full text-lg border";
+  const BADGE_ON = "border-emerald-500/50 text-emerald-500 bg-emerald-600/15";
+  const BADGE_OFF = "border-rose-600 text-rose-600 bg-rose-200";
+
+  const twofaBadge = domElem("span", {
+    class: `${BADGE_BASE} ${BADGE_OFF}`,
+    text: "Disabled",
+  });
+
+  mount(twofaRow, twofaLabel, twofaBadge);
+
+  // Spacer so the button hugs the bottom
+  const spacer = domElem("div", { class: "flex-1" });
+
+  // Edit profile button
+  const editBtn = domElem("button", { class: "text-gray-400 hover:text-teal-600 text-lg font-bold mouse-pointer", text: "Edit profile" });
+  editBtn.append(domElem("i", { class: "ml-3 fa-solid fa-edit" }));
+
+  const editProfileMenu = createSplashScreen("Edit Profile");
+  document.body.appendChild(editProfileMenu.backdrop);
+
+  editBtn.addEventListener("click", () => {
+    const form = ProfileEditForm(() => editProfileMenu.close());
+    editProfileMenu.setContent(form.wrap);
+    editProfileMenu.open();
+  });
+  mount(body, emailRow, twofaRow, spacer, editBtn);
+  mount(box, header, body);
+
+  function setText(el: HTMLElement, value: string | undefined | null, fallback: string) {
+    if (value === undefined) return; // do nothing if key not provided
+    el.textContent = value ?? fallback; // null -> fallback, "" stays ""
+  }
+
+  function setSrc(img: HTMLImageElement, value: string | undefined | null, fallback: string) {
+    if (value === undefined) return;
+    img.src = value ?? fallback;
+  }
+
+  function set2fa(enabled: boolean | undefined) {
+    if (enabled === undefined) return;
+    twofaBadge.textContent = enabled ? "Enabled" : "Disabled";
+    twofaBadge.classList.remove(...BADGE_ON.split(" "), ...BADGE_OFF.split(" "));
+    twofaBadge.classList.add(...(enabled ? BADGE_ON : BADGE_OFF).split(" "));
+  }
+
+  function update(input: { pseudo?: string | null; email?: string | null; avatarUrl?: string | null; twofaEnabled?: boolean }) {
+    setText(uname, input.pseudo, "Pseudo");
+    setText(emailValue, input.email, "email@example.com");
+    setSrc(avatar as HTMLImageElement, input.avatarUrl, "/user.png");
+    set2fa(input.twofaEnabled);
+  }
+
+  return { box, update };
+};
+
+const ProfileEditScreen = (userId: number) => {
+  const u = usersIndex.get().byId[userId] ?? { pseudo: "", avatar_url: null };
+  const email = auth.get().email ?? "";
+
+  const initialProfile: ProfileEditInitial = {
+    pseudo: u.pseudo,
+    email,
+    avatarUrl: u.avatar_url,
+  };
+
+  const form = ProfileEditForm(
+    { pseudo: u.pseudo, email, avatarUrl: u.avatar_url },
+    {
+      onSubmit: async (payload: ProfileEditPayload) => {
+        // Orchestrate changes in one place
+        if (payload.deleteAvatar) {
+          await deleteAvatar();
+        }
+        // Build profile input for saveMyProfile (only if needed)
+        const saveInput: { email?: string; pseudo?: string; avatarFile?: File | null } = {};
+        if (payload.pseudo !== undefined) saveInput.pseudo = payload.pseudo;
+        if (payload.email !== undefined) saveInput.email = payload.email;
+        if (payload.avatarFile) saveInput.avatarFile = payload.avatarFile;
+
+        if (Object.keys(saveInput).length > 0) {
+          await saveMyProfile(saveInput);
+        }
+
+        modal.close();
+        form.dispose();
+      },
+      onCancel: () => {
+        modal.close();
+        form.dispose();
+      },
+    }
+  );
+};
+
+export const ProfileView = async (root: HTMLElement) => {
+  const meId = auth.get().meId as number;
+
+  console.log(auth.get());
+  console.log(usersIndex.get().byId[meId]);
+  loadUser(meId);
+  loadUserStats(meId);
+
   const matchHistory = MatchHistoryCard();
   const winRate = WinrateCard();
   const longestStreak = LongestStreakCard();
@@ -387,42 +350,28 @@ export const ProfileView = (root: HTMLElement) => {
   const profileCard = ProfileCard();
   const latestMatch = LatestMatchCard();
 
-  const meId = auth.get().meId as number;
-  const me = usersIndex.get().byId[meId];
-
-  const meStats = userStats.get().byId[me.id];
-
   root.className = "grid grid-cols-8 grid-rows-5 gap-3 px-8 py-12";
 
   matchHistory.className += " col-span-4 row-span-1";
-  profileCard.className += " col-span-4 row-span-4";
+  profileCard.box.className += " col-span-4 row-span-4";
   winRate.className += " col-span-2 row-span-2";
   longestStreak.className += " col-span-2 row-span-2";
   leaderBoard.className += " col-span-4 row-span-2";
   latestMatch.className += " col-span-4 row-span-1";
 
-  root.replaceChildren(matchHistory, profileCard, winRate, longestStreak, leaderBoard, latestMatch);
+  root.replaceChildren(matchHistory, profileCard.box, winRate, longestStreak, leaderBoard, latestMatch);
+
+  const unbindAuth = bind(auth, (s) => {
+    profileCard.update({ email: s.email as string, twofaEnabled: s.twofaEnabled });
+  });
+
+  const unbindUsersIndex = bind(usersIndex, (s) => {
+    const u = s.byId[meId];
+    profileCard.update({ pseudo: u.pseudo, avatarUrl: u.avatar_url as string });
+  });
+
+  return () => {
+    unbindAuth;
+    unbindUsersIndex;
+  };
 };
-//   const card = Card();
-//   const avZone = domElem("div", { class: "flex items-center gap-4" });
-//   const form = domElem("form", { class: "mt-4 flex items-end gap-3" });
-//   const pseudo = LabeledInput("Pseudo");
-//   const avatarUrl = LabeledInput("Avatar URL");
-//   const save = Button("Save", { type: "submit" });
-//   const del = Button("Remove avatar", { variant: "ghost", onClick: () => deleteAvatar() });
-//   form.addEventListener("submit", async (e) => {
-//     e.preventDefault();
-//     const p = (pseudo.input as HTMLInputElement).value.trim();
-//     const url = (avatarUrl.input as HTMLInputElement).value.trim();
-//     if (p) await updateMe({ pseudo: p });
-//     if (url) await uploadAvatar(url);
-//   });
-//   mount(card, avZone, form);
-//   mount(form, pseudo.labelWrapper, avatarUrl.labelWrapper, save, del);
-//   const unbind = bind(auth, (s) => {
-//     avZone.replaceChildren(Avatar(s.me?.avatar_url ?? null, 64), domElem("div", { class: "font-medium", text: s.me?.pseudo ?? "..." }));
-//     pseudo.input.value = s.me?.pseudo ?? "";
-//     avatarUrl.input.value = s.me?.avatar_url ?? "";
-//   });
-//   root.append(card);
-//   return () => unbind();

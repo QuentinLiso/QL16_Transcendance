@@ -73,7 +73,7 @@ export function getRequest<T>(path: string, params?: Record<string, any>) {
 export function postRequest<T>(path: string, json?: any) {
   return http<T>(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: json !== undefined ? { "Content-Type": "application/json" } : {},
     body: json !== undefined ? JSON.stringify(json) : undefined,
   });
 }
@@ -81,7 +81,7 @@ export function postRequest<T>(path: string, json?: any) {
 export function putRequest<T>(path: string, json?: any) {
   return http<T>(path, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: json !== undefined ? { "Content-Type": "application/json" } : {},
     body: json !== undefined ? JSON.stringify(json) : undefined,
   });
 }

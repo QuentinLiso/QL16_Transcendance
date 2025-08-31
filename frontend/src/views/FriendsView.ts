@@ -3,7 +3,7 @@ import { domElem, mount, bind } from "../ui/DomElement";
 import { Card } from "../ui/Card";
 import { Avatar } from "../ui/Avatar";
 import { Button } from "../ui/Button";
-import * as Friends from "../store/friends";
+import * as Friends from "../store/friends.store";
 import type { FriendRequest, PublicUser } from "../api/types";
 
 const friendCard = (friend: PublicUser) => {

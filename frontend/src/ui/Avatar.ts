@@ -3,7 +3,7 @@ import { domElem } from "./DomElement";
 
 export function Avatar(url: string | null, size = 40) {
   const elem = domElem("div", {
-    class: "rounded-full bg-gray-200 overflow-hidden flex-shrink-0",
+    class: "rounded-full overflow-hidden flex-shrink-0",
     attributes: {
       style: `width:${size}px;height${size}px`,
     },
@@ -11,7 +11,7 @@ export function Avatar(url: string | null, size = 40) {
 
   if (url) {
     const img = domElem("img", {
-      class: "w-full h-full object-cover",
+      class: "object-cover",
       attributes: {
         src: url,
         alt: "avatar",

@@ -1,25 +1,29 @@
 // src/store/auth.ts
 import { createStore } from "./createStore";
 import { AuthAPI } from "../api/auth";
-import { UsersAPI } from "./../api/users";
-import type { Me } from "../api/types";
+import { UsersAPI } from "../api/users";
 import { HttpError } from "../api/http";
-import { loadUser } from "./usersIndex";
+import { primeUser } from "./usersIndex.store";
+import type { PublicUser } from "../api/types";
 
 /**
  *
  */
 export type AuthState = {
   meId: number | null;
-  loading: boolean;
+  email: string | null;
+  twofaEnabled: boolean;
   twofaRequired: boolean;
+  loading: boolean;
   error: string | null;
 };
 
 export const auth = createStore<AuthState>({
   meId: null,
-  loading: true,
+  email: null,
+  twofaEnabled: false,
   twofaRequired: false,
+  loading: true,
   error: null,
 });
 
@@ -30,9 +34,21 @@ export async function bootstrapSession() {
   auth.set((s) => ({ ...s, loading: true, error: null }));
   try {
     const me = await UsersAPI.me();
-    auth.set((s) => ({ ...s, meId: me.id, loading: false }));
+    const publicMe: PublicUser = {
+      id: me.id,
+      pseudo: me.pseudo,
+      avatar_url: me.avatar_url,
+    };
+    primeUser(publicMe);
+    auth.set((s) => ({
+      ...s,
+      meId: me.id,
+      email: me.email,
+      twofaEnabled: me.is_2fa_enabled ? true : false,
+      loading: false,
+    }));
   } catch {
-    auth.set((s) => ({ ...s, me: null, loading: false }));
+    auth.set((s) => ({ ...s, meId: null, email: null, twofaEnabled: false, loading: false }));
   }
 }
 
@@ -55,11 +71,22 @@ export async function login(pseudoOrEmail: string, password: string) {
       return;
     }
     const me = await UsersAPI.me();
-    auth.set((s) => ({ ...s, me: me.id, twofaRequired: false }));
-    loadUser(me.id);
+    const publicMe: PublicUser = {
+      id: me.id,
+      pseudo: me.pseudo,
+      avatar_url: me.avatar_url,
+    };
+    primeUser(publicMe);
+    auth.set((s) => ({
+      ...s,
+      meId: me.id,
+      email: me.email,
+      twofaEnabled: me.is_2fa_enabled ? true : false,
+      loading: false,
+    }));
   } catch (e: any) {
     const msg = e instanceof HttpError ? `${e.status}: ${e.message}` : "Login failed";
-    auth.set((s) => ({ ...s, error: msg, me: null, twofaRequired: false }));
+    auth.set((s) => ({ ...s, error: msg, meId: null, email: null, twofaEnabled: false, loading: false }));
     throw e;
   }
 }
@@ -71,7 +98,7 @@ export async function logout() {
   try {
     await AuthAPI.logout();
   } catch {}
-  auth.set((s) => ({ ...s, me: null, twofaRequired: false }));
+  auth.set((s) => ({ ...s, meId: null, email: null, twofaRequired: false }));
   location.hash = "/login";
 }
 
@@ -81,7 +108,19 @@ export async function logout() {
 export async function verify2faLogin(code: string) {
   await AuthAPI.verify2faLogin(code);
   const me = await UsersAPI.me();
-  auth.set((s) => ({ ...s, me: me.id, twofaRequired: false }));
+  const publicMe: PublicUser = {
+    id: me.id,
+    pseudo: me.pseudo,
+    avatar_url: me.avatar_url,
+  };
+  primeUser(publicMe);
+  auth.set((s) => ({
+    ...s,
+    meId: me.id,
+    email: me.email,
+    twofaEnabled: me.is_2fa_enabled ? true : false,
+    loading: false,
+  }));
 }
 
 /**
@@ -96,6 +135,7 @@ export async function begin2fa() {
  */
 export async function verify2faSetup(code: string) {
   await AuthAPI.verify2faSetup(code);
+  auth.set((s) => ({ ...s, twofaEnabled: true }));
 }
 
 /**
@@ -103,4 +143,5 @@ export async function verify2faSetup(code: string) {
  */
 export async function disable2fa() {
   await AuthAPI.disable2fa();
+  auth.set((s) => ({ ...s, twofaEnabled: false }));
 }

@@ -14,6 +14,7 @@ export const CODES = {
   USER_MISSING_FIELDS: { status: 400, message: "Missing fields" },
   USER_ALREADY_EXISTS: { status: 409, message: "User already exists" },
   PSEUDO_TAKEN: { status: 409, message: "Pseudo already taken" },
+  BAD_EMAIL: { status: 400, message: "Invalid email" },
   BAD_PSEUDO: { status: 400, message: "Invalid pseudo" },
   BAD_LIMIT: { status: 400, message: "Invalid limit" },
   BAD_OFFSET: { status: 400, message: "Invalid offset" },

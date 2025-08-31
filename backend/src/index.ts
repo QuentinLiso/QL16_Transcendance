@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 
 // Load env and create the server instance
 dotenv.config({ quiet: true });
-const fastify = Fastify({ logger: true });
+const fastify = Fastify({ logger: false });
 
 // Register plugins and routes
 setRouter(fastify);
