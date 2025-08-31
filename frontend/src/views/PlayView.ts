@@ -680,13 +680,12 @@ function SettingsPanel(onStart: (s: Settings) => void) {
   const right = h("div", { class: "flex flex-col gap-7 p-6 items-center bg-emerald-50" });
   right.append(h("div", { class: "text-lg font-semibold text-slate-800", text: "Match settings" }));
 
-  const rightWrap = h("div", { class: "flex flex-col gap-7 items-center" });
-  const rightSeparator = h("i", { class: "fa-solid fa-atom" });
+  const rightWrap = h("div", { class: "flex flex-col gap-4 items-center" });
 
   right.append(rightWrap);
   // Points
   const pointsWrap = h("div", { class: "flex flex-col items-center gap-4" });
-  pointsWrap.append(h("div", { class: "text-sm text-slate-600", text: "Points to win" }));
+  pointsWrap.append(h("div", { class: "text-sm font-semibold text-slate-600", text: "Points to win" }));
   const points = h("div", { class: "flex flex-wrap gap-2" });
   ([3, 5, 7, 9] as Points[]).forEach((p) => {
     const b = h("button", {
@@ -705,11 +704,11 @@ function SettingsPanel(onStart: (s: Settings) => void) {
   });
   pointsWrap.append(points);
   rightWrap.append(pointsWrap);
-  rightWrap.append(rightSeparator);
+  rightWrap.append(h("div", { class: "h-0.25 w-[60%] my-2 bg-emerald-700/20" }));
 
   // Paddle size + preview
-  const sizeWrap = h("div", { class: "flex flex-col items-center gap-4" });
-  sizeWrap.append(h("div", { class: "text-sm text-slate-600", text: "Paddle size" }));
+  const paddleWrap = h("div", { class: "flex flex-col items-center gap-4" });
+  paddleWrap.append(h("div", { class: "text-sm  font-semibold text-slate-600", text: "Paddle" }));
   const sizes = h("div", { class: "flex flex-wrap gap-10" });
   (["small", "medium", "large"] as PaddleSizeKey[]).forEach((k) => {
     const box = h("button", {
@@ -729,18 +728,32 @@ function SettingsPanel(onStart: (s: Settings) => void) {
     if (k === state.paddleSize) box.classList.add("ring-2", "ring-emerald-300");
     sizes.append(box);
   });
-  sizeWrap.append(sizes);
-  rightWrap.append(sizeWrap);
+  paddleWrap.append(sizes);
+
+  // Free move toggle
+  const freeWrap = h("label", { class: "inline-flex items-center gap-3 cursor-pointer" });
+  const freeChk = h("input", { attributes: { type: "checkbox" }, class: "w-4 h-4 accent-emerald-600" }) as HTMLInputElement;
+  const freeLbl = h("span", { class: "text-sm text-slate-700", text: "Allow free movement (all directions)" });
+  freeChk.checked = state.freeMove;
+  freeChk.addEventListener("change", () => {
+    state.freeMove = freeChk.checked;
+    renderSummary();
+  });
+  freeWrap.append(freeChk, freeLbl);
+  paddleWrap.append(freeWrap);
+
+  rightWrap.append(paddleWrap);
+  rightWrap.append(h("div", { class: "h-0.25 w-[60%] my-2 bg-emerald-700/20" }));
 
   // Side selector
   const sideWrap = h("div", { class: "w-full flex flex-col items-center gap-3" });
-  sideWrap.append(h("div", { class: "text-sm text-slate-600", text: "Side" }));
+  sideWrap.append(h("div", { class: "text-sm font-semibold text-slate-600", text: "Side" }));
 
   const sides = h("div", { class: "w-full flex flex-row items-center justify-around" });
   const leftSidePlayer = h("div", { class: "w-20 flex-none", text: state.me.alias });
   const rightSidePlayer = h("div", { class: "w-20 flex-none", text: "Opponent" });
   const sideBtn = h("button", {
-    class: "px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 flex items-center gap-2",
+    class: "px-3 py-2 rounded-xl bg-emerald-700 text-white border border-slate-200 hover:bg-slate-50 flex items-center gap-2",
     attributes: { type: "button" },
   });
   const sideIcon = h("i", { class: "fa-solid fa-right-left" });
@@ -760,22 +773,11 @@ function SettingsPanel(onStart: (s: Settings) => void) {
   sides.append(leftSidePlayer, sideBtn, rightSidePlayer);
   sideWrap.append(sides);
   rightWrap.append(sideWrap);
-
-  // Free move toggle
-  const freeWrap = h("label", { class: "inline-flex items-center gap-3 cursor-pointer" });
-  const freeChk = h("input", { attributes: { type: "checkbox" }, class: "w-4 h-4 accent-emerald-600" }) as HTMLInputElement;
-  const freeLbl = h("span", { class: "text-sm text-slate-700", text: "Allow free movement (all directions)" });
-  freeChk.checked = state.freeMove;
-  freeChk.addEventListener("change", () => {
-    state.freeMove = freeChk.checked;
-    renderSummary();
-  });
-  freeWrap.append(freeChk, freeLbl);
-  rightWrap.append(freeWrap);
+  rightWrap.append(h("div", { class: "h-0.25 w-[60%] my-2 bg-emerald-700/20" }));
 
   // Mode
   const modeWrap = h("div", { class: "flex flex-col items-center gap-3" });
-  modeWrap.append(h("div", { class: "text-sm text-slate-600", text: "Mode" }));
+  modeWrap.append(h("div", { class: "text-sm  font-semibold text-slate-600", text: "Mode" }));
   const modes = h("div", { class: "flex flex-wrap gap-2" });
   const mode2d = h("button", { class: "px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50", attributes: { type: "button" }, text: "2D" });
   const mode3d = h("button", { class: "px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50", attributes: { type: "button" }, text: "3D" });
@@ -795,6 +797,7 @@ function SettingsPanel(onStart: (s: Settings) => void) {
   mode3d.addEventListener("click", () => setMode("3d"));
   modeWrap.append(modes);
   rightWrap.append(modeWrap);
+  rightWrap.append(h("div", { class: "h-0.25 w-[60%] my-2 bg-emerald-700/20" }));
 
   // Summary + Start
   function renderSummary() {
