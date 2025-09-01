@@ -59,11 +59,83 @@ type Settings = {
   mode: GameMode;
 };
 
+export type PlayPreset = { kind: "duel"; opponent: User; me?: User } | { kind: "tournament"; p1: User; p2: User; pointsToWin?: Points };
+
+let _playPreset: PlayPreset | null = null;
+
+/** Call this before navigating to the Play view. Consumed once on mount. */
+export function setPlayPreset(p: PlayPreset) {
+  _playPreset = p;
+}
+
 /* ---------------- Helpers ---------------- */
-const paddleHeights: Record<PaddleSizeKey, number> = { small: 70, medium: 110, large: 150 };
+const paddleHeights: Record<PaddleSizeKey, number> = { small: 100, medium: 150, large: 200 };
 const paddleWidth = 12;
+const WORLD_W = 2000;
+const WORLD_H = (WORLD_W * 9) / 16;
 function clamp(n: number, a: number, b: number) {
   return Math.max(a, Math.min(b, n));
+}
+
+type Rect = { x: number; y: number; width: number; height: number; vx?: number; vy?: number };
+type Hit = { hit: false } | { hit: true; nx: number; ny: number; pen: number };
+
+function circleRectHit(cx: number, cy: number, r: number, R: Rect): Hit {
+  const qx = clamp(cx, R.x, R.x + R.width);
+  const qy = clamp(cy, R.y, R.y + R.height);
+  let dx = cx - qx,
+    dy = cy - qy;
+  const dist2 = dx * dx + dy * dy;
+
+  if (dist2 <= r * r) {
+    if (dx === 0 && dy === 0) {
+      // circle center exactly on the rectangle surface: pick the shallowest axis
+      const l = Math.abs(cx - r - R.x);
+      const rgt = Math.abs(R.x + R.width - (cx + r));
+      const t = Math.abs(cy - r - R.y);
+      const b = Math.abs(R.y + R.height - (cy + r));
+      const m = Math.min(l, rgt, t, b);
+      if (m === l) return { hit: true, nx: -1, ny: 0, pen: l };
+      if (m === rgt) return { hit: true, nx: 1, ny: 0, pen: rgt };
+      if (m === t) return { hit: true, nx: 0, ny: -1, pen: t };
+      return { hit: true, nx: 0, ny: 1, pen: b };
+    }
+    const d = Math.sqrt(dist2);
+    return { hit: true, nx: dx / d, ny: dy / d, pen: r - d };
+  }
+  return { hit: false };
+}
+
+function resolveAndReflect(
+  ball: { x: number; y: number; vx: number; vy: number; radius: number },
+  rect: Rect,
+  e = 0.9, // restitution
+  spin = 0.25, // how much paddle velocity influences the ball
+  accel = 1.03 // your speed-up factor
+) {
+  const h = circleRectHit(ball.x, ball.y, ball.radius, rect);
+  if (!h.hit) return false;
+
+  // separate along normal
+  ball.x += h.nx * h.pen;
+  ball.y += h.ny * h.pen;
+
+  // reflect across contact normal
+  const vdotn = ball.vx * h.nx + ball.vy * h.ny;
+  ball.vx = ball.vx - (1 + e) * vdotn * h.nx;
+  ball.vy = ball.vy - (1 + e) * vdotn * h.ny;
+
+  // add a bit of paddle motion ("english")
+  if (rect.vx || rect.vy) {
+    ball.vx += (rect.vx ?? 0) * spin;
+    ball.vy += (rect.vy ?? 0) * spin;
+  }
+
+  // accelerate slightly each hit
+  ball.vx *= accel;
+  ball.vy *= accel;
+
+  return true;
 }
 
 /* =========================================================================
@@ -77,6 +149,10 @@ class Player2D {
   width = paddleWidth;
   height: number;
   score = 0;
+  vx = 0;
+  vy = 0; // NEW: instantaneous velocity from last frame
+  private _px = 0;
+  private _py = 0; // NEW: last position to compute velocity
 
   // movement flags
   up = false;
@@ -90,10 +166,14 @@ class Player2D {
     this.x = x;
     this.y = y;
     this.height = height;
+    this._px = this.x;
+    this._py = this.y; // NEW
   }
 
   update(dt: number, canvasW: number, canvasH: number, freeMove: boolean, side: Side) {
-    const v = 600;
+    const v = 800;
+    const oldX = this.x,
+      oldY = this.y; // NEW
     if (this.up) this.y -= v * dt;
     if (this.down) this.y += v * dt;
     if (freeMove) {
@@ -108,51 +188,148 @@ class Player2D {
     }
     // vertical clamp
     this.y = clamp(this.y, 0, canvasH - this.height);
+
+    // NEW: instantaneous velocity (used by ball for spin)
+    this.vx = (this.x - oldX) / dt;
+    this.vy = (this.y - oldY) / dt;
   }
 }
 
 class Ball2D {
   x: number;
   y: number;
-  radius = 10;
-  vx = 320;
-  vy = 220;
-  accel = 1.05;
+  radius = 100;
+  vx = 920;
+  vy = 350;
+  accel = 1.03;
+  private lastHitSide: "L" | "R" | null = null; // which paddle hit last
+  private sinceLastHitMs = 1e9; // time since last paddle hit
+  private samePaddleCooldownMs = 1000; // tweak: 80–150ms feels good
 
-  constructor(x: number, y: number) {
+  private img: HTMLImageElement | null = null;
+  private imgReady = false;
+  private angle = 0;
+  private spinFactor = 1;
+
+  constructor(x: number, y: number, radius = 100, imgSrc?: string) {
     this.x = x;
     this.y = y;
+    this.radius = radius;
+    if (imgSrc) this.loadImage(imgSrc);
   }
+
+  // Optional late binding of the sprite*/
+  setImage(src: string) {
+    this.loadImage(src);
+  }
+
+  private loadImage(src: string) {
+    const img = new Image();
+    img.crossOrigin = "anonymous"; // safe no-op for local /public
+    img.src = src;
+    img.onload = () => {
+      this.img = img;
+      this.imgReady = true;
+    };
+  }
+
   reset(x: number, y: number) {
     this.x = x;
     this.y = y;
-    this.vx = (Math.random() > 0.5 ? 1 : -1) * 320;
-    this.vy = (Math.random() > 0.5 ? 1 : -1) * 220;
+    this.vx = (Math.random() > 0.5 ? 1 : -1) * 500;
+    this.vy = (Math.random() > 0.5 ? 1 : -1) * 320;
+    this.lastHitSide = null; // NEW
+    this.sinceLastHitMs = 1e9; // NEW
+    // keep the current angle so the spin feels continuous;
+    // set this.angle = 0 if you want a fresh spin each serve
   }
 
-  step(dt: number, cw: number, ch: number, pL: Player2D, pR: Player2D): 1 | 2 | null {
+  /** Physics + collisions; returns scorer (1 or 2) or null */
+  step(
+    dt: number,
+    cw: number,
+    ch: number,
+    pL: { x: number; y: number; width: number; height: number; vx?: number; vy?: number },
+    pR: { x: number; y: number; width: number; height: number; vx?: number; vy?: number }
+  ): 1 | 2 | null {
+    // integrate
     this.x += this.vx * dt;
     this.y += this.vy * dt;
 
-    // walls
-    if (this.y - this.radius < 0 || this.y + this.radius > ch) this.vy *= -1;
+    // NEW: advance cooldown timer
+    this.sinceLastHitMs += dt * 1000;
 
-    // collisions
-    const hitLeft = this.x - this.radius <= pL.x + pL.width && this.x - this.radius >= pL.x && this.y + this.radius >= pL.y && this.y - this.radius <= pL.y + pL.height;
-    const hitRight = this.x + this.radius >= pR.x && this.x + this.radius <= pR.x + pR.width && this.y + this.radius >= pR.y && this.y - this.radius <= pR.y + pR.height;
+    // spin proportional to speed & size
+    const speed = Math.hypot(this.vx, this.vy);
+    this.angle += (speed / (this.radius * 8)) * dt * this.spinFactor;
 
-    if (hitLeft || hitRight) {
-      this.vx *= -this.accel;
-      this.vy *= this.accel;
+    // walls (top/bottom) with proper separation
+    if (this.y - this.radius < 0) {
+      this.y = this.radius;
+      this.vy *= -1;
+    }
+    if (this.y + this.radius > ch) {
+      this.y = ch - this.radius;
+      this.vy *= -1;
     }
 
-    if (this.x < 0) return 2;
-    if (this.x > cw) return 1;
+    // collide with paddles using normal-based reflection (one hit max per frame)
+    let hit = false;
+
+    // allow Left if last hit wasn't Left, or cooldown elapsed
+    if (this.lastHitSide !== "L" || this.sinceLastHitMs >= this.samePaddleCooldownMs) {
+      if (resolveAndReflect(this, pL, 0.9, 0.25, this.accel)) {
+        this.lastHitSide = "L";
+        this.sinceLastHitMs = 0;
+        hit = true;
+      }
+    }
+
+    // only try Right if we didn't already collide this frame
+    if (!hit && (this.lastHitSide !== "R" || this.sinceLastHitMs >= this.samePaddleCooldownMs)) {
+      if (resolveAndReflect(this, pR, 0.9, 0.25, this.accel)) {
+        this.lastHitSide = "R";
+        this.sinceLastHitMs = 0;
+        hit = true;
+      }
+    }
+
+    // scoring (leave-side only)
+    if (this.x < 0) {
+      this.lastHitSide = null;
+      this.sinceLastHitMs = 1e9;
+      return 2;
+    }
+    if (this.x > cw) {
+      this.lastHitSide = null;
+      this.sinceLastHitMs = 1e9;
+      return 1;
+    }
     return null;
+  }
+
+  /** Draws the ball (sprite if loaded; circle fallback otherwise) */
+  draw(ctx: CanvasRenderingContext2D) {
+    if (this.imgReady && this.img) {
+      const size = this.radius * 2;
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.angle);
+      ctx.imageSmoothingEnabled = true; // set false for crisp pixel-art icons
+      ctx.drawImage(this.img, -size / 2, -size / 2, size, size);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 
 class Game2D {
+  private dpr = window.devicePixelRatio || 1;
+  private scale = 1;
   private ctx: CanvasRenderingContext2D;
   private pLeft: Player2D;
   private pRight: Player2D;
@@ -179,20 +356,16 @@ class Game2D {
     this.ctx = ctx;
 
     // place paddles by side
-    const cw = canvas.width,
-      ch = canvas.height;
     const margin = 18;
-    const Lx = margin,
-      Rx = cw - margin - paddleWidth;
-    const midY = (ch - paddleH) / 2;
+    const midY = (WORLD_H - paddleH) / 2;
 
     const meLeft = mySide === "left";
     const leftName = meLeft ? me.alias : opp.alias;
     const rightName = meLeft ? opp.alias : me.alias;
 
-    this.pLeft = new Player2D(leftName, "#e2f7e1", Lx, midY, paddleH);
-    this.pRight = new Player2D(rightName, "#fde2e2", Rx, midY, paddleH);
-    this.ball = new Ball2D(cw / 2, ch / 2);
+    this.pLeft = new Player2D(leftName, "#e2f7e1", margin, midY, paddleH);
+    this.pRight = new Player2D(rightName, "#fde2e2", WORLD_W - margin - paddleWidth, midY, paddleH);
+    this.ball = new Ball2D(WORLD_W / 2, WORLD_H / 2, 40, "/ball.png");
 
     this.freeMove = freeMove;
     this.target = pointsToWin;
@@ -203,18 +376,26 @@ class Game2D {
 
   private installResize() {
     const fit = () => {
-      // compute a nice size that fits viewport while keeping ~16:9 ratio
-      const maxW = this.wrap.clientWidth;
-      const maxH = this.wrap.clientHeight - this.header.clientHeight - 12;
-      const ratio = 16 / 9;
-      let w = Math.min(maxW, Math.floor(maxH * ratio));
-      let h = Math.min(maxH, Math.floor(w / ratio));
-      if (w < 640) {
-        w = 640;
-        h = Math.floor(w / ratio);
-      } // minimum comfortable size
-      this.canvas.width = w;
-      this.canvas.height = h;
+      // how big can we display the world in CSS pixels?
+      const availW = this.wrap.clientWidth;
+      const availH = this.wrap.clientHeight - this.header.clientHeight - 12;
+      const scale = Math.min(availW / WORLD_W, availH / WORLD_H);
+      // avoid too tiny
+      this.scale = Math.max(scale, 0.5);
+
+      // CSS display size
+      const cssW = Math.floor(WORLD_W * this.scale);
+      const cssH = Math.floor(WORLD_H * this.scale);
+      this.canvas.style.width = cssW + "px";
+      this.canvas.style.height = cssH + "px";
+
+      // backing store size (physical pixels)
+      const pxW = Math.floor(cssW * this.dpr);
+      const pxH = Math.floor(cssH * this.dpr);
+      if (this.canvas.width !== pxW || this.canvas.height !== pxH) {
+        this.canvas.width = pxW;
+        this.canvas.height = pxH;
+      }
     };
     fit();
     this.resizeObs = new ResizeObserver(fit);
@@ -272,7 +453,7 @@ class Game2D {
   resetRound() {
     this.pLeft.score = 0;
     this.pRight.score = 0;
-    this.ball.reset(this.canvas.width / 2, this.canvas.height / 2);
+    this.ball.reset(WORLD_W / 2, WORLD_H / 2); // was canvas.width/height
   }
 
   start() {
@@ -288,28 +469,36 @@ class Game2D {
   }
 
   private update(dt: number) {
-    const cw = this.canvas.width,
-      ch = this.canvas.height;
-    this.pLeft.update(dt, cw, ch, this.freeMove, "left");
-    this.pRight.update(dt, cw, ch, this.freeMove, "right");
+    const maxStep = 1 / 240; // 240 Hz substeps
+    let remaining = dt;
+    while (remaining > 0) {
+      const s = Math.min(maxStep, remaining);
 
-    const scorer = this.ball.step(dt, cw, ch, this.pLeft, this.pRight);
-    if (scorer) {
-      (scorer === 1 ? this.pLeft : this.pRight).score++;
-      if (this.pLeft.score >= this.target || this.pRight.score >= this.target) {
-        this.winner = this.pLeft.score > this.pRight.score ? this.pLeft : this.pRight;
-        this.over = true;
+      // move paddles in the same substep cadence (so their vx/vy are accurate)
+      this.pLeft.update(s, WORLD_W, WORLD_H, this.freeMove, "left");
+      this.pRight.update(s, WORLD_W, WORLD_H, this.freeMove, "right");
+
+      const scorer = this.ball.step(s, WORLD_W, WORLD_H, this.pLeft, this.pRight);
+      if (scorer) {
+        (scorer === 1 ? this.pLeft : this.pRight).score++;
+        if (this.pLeft.score >= this.target || this.pRight.score >= this.target) {
+          this.winner = this.pLeft.score > this.pRight.score ? this.pLeft : this.pRight;
+          this.over = true;
+        }
+        this.ball.reset(WORLD_W / 2, WORLD_H / 2); // CHANGED: world space
+        this.paused = true;
+        break; // stop consuming the rest of dt this frame
       }
-      this.ball.reset(cw / 2, ch / 2);
-      this.paused = true;
+
+      remaining -= s;
     }
   }
 
   private drawField(ctx: CanvasRenderingContext2D, w: number, h: number) {
     // greenish gradient background
     const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, "#ecfdf5");
-    g.addColorStop(1, "#d1fae5");
+    g.addColorStop(0, "#162322");
+    g.addColorStop(1, "#2e736c");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
 
@@ -334,31 +523,27 @@ class Game2D {
   }
 
   private draw() {
-    const ctx = this.ctx,
-      w = this.canvas.width,
-      h = this.canvas.height;
+    const ctx = this.ctx;
 
-    this.drawField(ctx, w, h);
+    // Reset and set transform for crisp scaling
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.setTransform(this.scale * this.dpr, 0, 0, this.scale * this.dpr, 0, 0);
 
-    // ball
-    ctx.fillStyle = "white";
-    ctx.beginPath();
-    ctx.arc(this.ball.x, this.ball.y, this.ball.radius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // paddles
+    // draw using WORLD units
+    this.drawField(ctx, WORLD_W, WORLD_H);
+    this.ball.draw(ctx); // your Ball2D already draws at (x,y) with radius in world units
     ctx.fillStyle = this.pLeft.color;
     ctx.fillRect(this.pLeft.x, this.pLeft.y, this.pLeft.width, this.pLeft.height);
     ctx.fillStyle = this.pRight.color;
     ctx.fillRect(this.pRight.x, this.pRight.y, this.pRight.width, this.pRight.height);
 
-    // overlay: paused/winner
     if (this.paused) {
-      ctx.fillStyle = "rgba(0,0,0,0.3)";
-      ctx.font = "28px system-ui, sans-serif";
+      ctx.fillStyle = "rgba(255,255,255,0.3)";
+      ctx.font = "100px system-ui, sans-serif";
       ctx.textAlign = "center";
       const msg = this.over ? `Winner: ${this.winner?.name ?? ""}` : "Press Space to resume";
-      ctx.fillText(msg, w / 2, h * 0.5 - 18);
+      ctx.fillText(msg, WORLD_W / 2, WORLD_H * 0.25);
     }
   }
 
@@ -374,264 +559,11 @@ class Game2D {
 }
 
 /* =========================================================================
-   3D Engine (Babylon) — dual first-person-ish views
-   - dynamic import so project builds even if @babylonjs/core isn’t installed
-============================================================================ */
-class Game3D {
-  private leftEngine: any;
-  private rightEngine: any;
-  private leftScene: any;
-  private rightScene: any;
-  private leftPaddle: any;
-  private rightPaddle: any;
-  private ballMeshL: any;
-  private ballMeshR: any;
-  private last = 0;
-  private paused = true;
-  private over = false;
-  private winner: "left" | "right" | null = null;
-
-  private pLeft = { x: -8, z: 0, w: 0.4, h: 2.5, up: false, down: false, left: false, right: false, score: 0 };
-  private pRight = { x: 8, z: 0, w: 0.4, h: 2.5, up: false, down: false, left: false, right: false, score: 0 };
-  private ball = { x: 0, z: 0, vx: 11, vz: 7, r: 0.4 };
-  private field = { xMin: -10, xMax: 10, zMin: -6, zMax: 6 };
-  private target: number;
-  private freeMove: boolean;
-
-  private keyDown!: (e: KeyboardEvent) => void;
-  private keyUp!: (e: KeyboardEvent) => void;
-
-  constructor(private canvL: HTMLCanvasElement, private canvR: HTMLCanvasElement, private header: HTMLElement, mySide: Side, paddleSize: PaddleSizeKey, pointsToWin: number, freeMove: boolean) {
-    this.target = pointsToWin;
-    this.freeMove = freeMove;
-    // scale paddle height from size
-    const sizeScale = paddleSize === "small" ? 0.8 : paddleSize === "large" ? 1.2 : 1;
-    this.pLeft.h *= sizeScale;
-    this.pRight.h *= sizeScale;
-
-    // swap control mapping if my side is right
-    const leftKeys = { up: "w", down: "s", left: "a", right: "d" };
-    const rightKeys = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight" };
-    const meKeys = mySide === "left" ? leftKeys : rightKeys;
-    const oppKeys = mySide === "left" ? rightKeys : leftKeys;
-
-    this.keyDown = (e) => {
-      if (e.key === " ") {
-        this.paused = !this.paused;
-        e.preventDefault();
-      }
-      const map = (k: string, side: "L" | "R", dir: "up" | "down" | "left" | "right") => {
-        if (e.key === k) (side === "L" ? this.pLeft : this.pRight)[dir] = true;
-      };
-      map(leftKeys.up, "L", "up");
-      map(leftKeys.down, "L", "down");
-      map(leftKeys.left, "L", "left");
-      map(leftKeys.right, "L", "right");
-      map(rightKeys.up, "R", "up");
-      map(rightKeys.down, "R", "down");
-      map(rightKeys.left, "R", "left");
-      map(rightKeys.right, "R", "right");
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
-    };
-    this.keyUp = (e) => {
-      const up = (k: string, side: "L" | "R", dir: "up" | "down" | "left" | "right") => {
-        if (e.key === k) (side === "L" ? this.pLeft : this.pRight)[dir] = false;
-      };
-      up(leftKeys.up, "L", "up");
-      up(leftKeys.down, "L", "down");
-      up(leftKeys.left, "L", "left");
-      up(leftKeys.right, "L", "right");
-      up(rightKeys.up, "R", "up");
-      up(rightKeys.down, "R", "down");
-      up(rightKeys.left, "R", "left");
-      up(rightKeys.right, "R", "right");
-    };
-    window.addEventListener("keydown", this.keyDown, { passive: false });
-    window.addEventListener("keyup", this.keyUp, { passive: false });
-  }
-
-  async init() {
-    // @ts-ignore dynamic import keeps 2D path compiling even if package missing
-    const BAB: any = await import("@babylonjs/core");
-
-    const { Engine, Scene, FreeCamera, Vector3, HemisphericLight, MeshBuilder, Color3, StandardMaterial } = BAB;
-
-    // helper to build a scene for one canvas + camera facing inward
-    const buildScene = (canvas: HTMLCanvasElement, camAtLeft: boolean) => {
-      const engine = new Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true }, false);
-      const scene = new Scene(engine);
-
-      const cam = new FreeCamera("cam", new Vector3(camAtLeft ? this.field.xMin - 2 : this.field.xMax + 2, 3.5, 0), scene);
-      cam.setTarget(new Vector3(0, 0.5, 0));
-
-      new HemisphericLight("l", new Vector3(0, 1, 0), scene);
-
-      // floor
-      const ground = MeshBuilder.CreateGround("g", { width: this.field.xMax - this.field.xMin + 2, height: this.field.zMax - this.field.zMin + 2 }, scene);
-      const mat = new StandardMaterial("gm", scene);
-      mat.diffuseColor = new Color3(0.88, 0.98, 0.93);
-      ground.material = mat;
-
-      // paddles & ball
-      const pMat = new StandardMaterial("pm", scene);
-      pMat.diffuseColor = camAtLeft ? new Color3(0.85, 0.97, 0.85) : new Color3(0.99, 0.88, 0.88);
-
-      const paddle = MeshBuilder.CreateBox("p", { width: this.pLeft.w, height: 0.2, depth: this.pLeft.h }, scene);
-      paddle.material = pMat;
-
-      const ball = MeshBuilder.CreateSphere("b", { diameter: this.ball.r * 2 }, scene);
-      const bMat = new StandardMaterial("bm", scene);
-      bMat.diffuseColor = new Color3(1, 1, 1);
-      ball.material = bMat;
-
-      return { engine, scene, paddle, ball };
-    };
-
-    const left = buildScene(this.canvL, true);
-    const right = buildScene(this.canvR, false);
-
-    this.leftEngine = left.engine;
-    this.leftScene = left.scene;
-    this.leftPaddle = left.paddle;
-    this.ballMeshL = left.ball;
-    this.rightEngine = right.engine;
-    this.rightScene = right.scene;
-    this.rightPaddle = right.paddle;
-    this.ballMeshR = right.ball;
-
-    // initial positions
-    this.syncMeshes();
-
-    // single RAF that updates logic and renders both scenes
-    const tick = (t: number) => {
-      const dt = this.last ? (t - this.last) / 1000 : 0;
-      this.last = t;
-
-      if (!this.paused && !this.over) this.update(dt);
-
-      this.syncMeshes();
-      this.leftScene.render();
-      this.rightScene.render();
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-
-    // resize handling
-    const ro = new ResizeObserver(() => {
-      this.leftEngine.resize();
-      this.rightEngine.resize();
-    });
-    ro.observe(this.canvL);
-    ro.observe(this.canvR);
-  }
-
-  private update(dt: number) {
-    const speed = 10;
-    // Z is vertical axis on ground plane; X is horizontal
-    if (this.pLeft.up) this.pLeft.z -= speed * dt;
-    if (this.pLeft.down) this.pLeft.z += speed * dt;
-    if (this.freeMove) {
-      if (this.pLeft.left) this.pLeft.x -= speed * dt;
-      if (this.pLeft.right) this.pLeft.x += speed * dt;
-    }
-    if (this.pRight.up) this.pRight.z -= speed * dt;
-    if (this.pRight.down) this.pRight.z += speed * dt;
-    if (this.freeMove) {
-      if (this.pRight.left) this.pRight.x -= speed * dt;
-      if (this.pRight.right) this.pRight.x += speed * dt;
-    }
-
-    // clamp paddles within halves
-    const half = (this.field.xMin + this.field.xMax) / 2;
-    this.pLeft.x = clamp(this.pLeft.x, this.field.xMin + 0.5, half - 0.6);
-    this.pRight.x = clamp(this.pRight.x, half + 0.6, this.field.xMax - 0.5);
-    this.pLeft.z = clamp(this.pLeft.z, this.field.zMin + this.pLeft.h / 2, this.field.zMax - this.pLeft.h / 2);
-    this.pRight.z = clamp(this.pRight.z, this.field.zMin + this.pRight.h / 2, this.field.zMax - this.pRight.h / 2);
-
-    // ball
-    this.ball.x += this.ball.vx * dt;
-    this.ball.z += this.ball.vz * dt;
-
-    // walls
-    if (this.ball.z < this.field.zMin || this.ball.z > this.field.zMax) this.ball.vz *= -1;
-
-    // collide with paddles (AABB-ish on X/Z)
-    const hitPaddle = (px: number, pz: number, pw: number, ph: number) => Math.abs(this.ball.x - px) < pw / 2 + this.ball.r && Math.abs(this.ball.z - pz) < ph / 2 + this.ball.r;
-
-    if (hitPaddle(this.pLeft.x, this.pLeft.z, this.pLeft.w, this.pLeft.h) && this.ball.vx < 0) {
-      this.ball.vx *= -1.05;
-      this.ball.vz *= 1.05;
-    }
-    if (hitPaddle(this.pRight.x, this.pRight.z, this.pRight.w, this.pRight.h) && this.ball.vx > 0) {
-      this.ball.vx *= -1.05;
-      this.ball.vz *= 1.05;
-    }
-
-    // score
-    if (this.ball.x < this.field.xMin - 0.5) {
-      this.pRight.score++;
-      this.resetBall();
-    }
-    if (this.ball.x > this.field.xMax + 0.5) {
-      this.pLeft.score++;
-      this.resetBall();
-    }
-
-    if (this.pLeft.score >= this.target || this.pRight.score >= this.target) {
-      this.over = true;
-      this.paused = true;
-      this.winner = this.pLeft.score > this.pRight.score ? "left" : "right";
-    }
-  }
-
-  private resetBall() {
-    this.ball.x = 0;
-    this.ball.z = 0;
-    this.ball.vx = (Math.random() > 0.5 ? 1 : -1) * 11;
-    this.ball.vz = (Math.random() > 0.5 ? 1 : -1) * 7;
-    this.paused = true;
-  }
-
-  private syncMeshes() {
-    // left camera view: paddle + ball positions
-    if (this.leftPaddle) this.leftPaddle.position.set(this.pLeft.x, 0.1, this.pLeft.z);
-    if (this.rightPaddle) this.rightPaddle.position.set(this.pRight.x, 0.1, this.pRight.z);
-    if (this.ballMeshL) this.ballMeshL.position.set(this.ball.x, 0.25, this.ball.z);
-    if (this.ballMeshR) this.ballMeshR.position.set(this.ball.x, 0.25, this.ball.z);
-  }
-
-  dispose() {
-    window.removeEventListener("keydown", this.keyDown);
-    window.removeEventListener("keyup", this.keyUp);
-    this.leftEngine?.dispose();
-    this.rightEngine?.dispose();
-  }
-
-  togglePause() {
-    this.paused = !this.paused;
-  }
-  getScores() {
-    return { left: this.pLeft.score, right: this.pRight.score };
-  }
-  isOver() {
-    return this.over;
-  }
-  getWinnerName(leftAlias: string, rightAlias: string) {
-    if (!this.winner) return null;
-    return this.winner === "left" ? leftAlias : rightAlias;
-  }
-}
-
-/* =========================================================================
    Settings Panel (search opponent, knobs, preview)
 ============================================================================ */
-function SettingsPanel(onStart: (s: Settings) => void) {
+function SettingsPanel(prefill: Partial<Settings> | null, onStart: (s: Settings) => void) {
   const state: Settings = {
-    me: {
-      id: 1,
-      alias: "Quentichou",
-      avatar: stockAvatar,
-    },
+    me: { id: 1, alias: "Quentichou", avatar: stockAvatar },
     opponent: null,
     pointsToWin: 3,
     paddleSize: "medium",
@@ -640,7 +572,18 @@ function SettingsPanel(onStart: (s: Settings) => void) {
     mode: "2d",
   };
 
-  const wrap = h("div", { class: "grid md:grid-cols-2 gap-6 bg-white rounded-2xl border border-emerald-100 shadow" });
+  // Apply prefill if provided
+  if (prefill) {
+    state.me = prefill.me ?? state.me;
+    state.opponent = prefill.opponent ?? state.opponent;
+    state.pointsToWin = prefill.pointsToWin ?? state.pointsToWin;
+    state.paddleSize = prefill.paddleSize ?? state.paddleSize;
+    state.mySide = prefill.mySide ?? state.mySide;
+    state.freeMove = prefill.freeMove ?? state.freeMove;
+    state.mode = prefill.mode ?? state.mode;
+  }
+
+  const wrap = h("div", { class: "w-full grid md:grid-cols-2 gap-6 bg-white rounded-2xl border border-emerald-100 shadow" });
 
   // LEFT: opponent search
   const left = h("div", { class: "flex flex-col gap-3 p-6" });
@@ -661,16 +604,38 @@ function SettingsPanel(onStart: (s: Settings) => void) {
     btn.addEventListener("click", () => {
       state.opponent = u;
       renderResults();
-      renderSummary();
     });
     return btn;
   }
+
+  const startBtn = h("button", {
+    class: "mt-1 px-4 py-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-40",
+    attributes: { type: "button", disabled: "true" },
+    text: "Start match",
+  });
+
+  const canStart = () => {
+    const ok = !!state.opponent;
+    startBtn.toggleAttribute("disabled", !ok);
+  };
+
   function renderResults() {
     results.replaceChildren();
     const q = search.value.trim().toLowerCase();
-    const list = q ? allUsers.filter((x) => x.alias.toLowerCase().includes(q)) : allUsers.slice(0, 8);
+
+    // Base list + ensure prefilled opponent is present at the top
+    const base: User[] = allUsers.slice();
+    if (state.opponent && !base.some((u) => u.id === state.opponent!.id)) {
+      base.unshift(state.opponent);
+    }
+
+    const list = q ? base.filter((x) => x.alias.toLowerCase().includes(q)) : base.slice(0, 8);
     list.forEach((u) => results.append(row(u)));
+
+    // Make sure the Start button reflects current state
+    canStart();
   }
+
   search.addEventListener("input", renderResults);
   renderResults();
 
@@ -689,13 +654,12 @@ function SettingsPanel(onStart: (s: Settings) => void) {
   const points = h("div", { class: "flex flex-wrap gap-2" });
   ([3, 5, 7, 9] as Points[]).forEach((p) => {
     const b = h("button", {
-      class: "px-3 py-2 rounded-xl border " + (state.pointsToWin === p ? "bg-emerald-700 text-white border-emerald-600" : "border-slate-200 hover:bg-slate-50"),
+      class: "px-3 py-2 rounded-xl border " + (state.pointsToWin === p ? "bg-emerald-700 text-white border-emerald-600" : "border-slate-200 hover:bg-emerald-400 hover:text-white"),
       attributes: { type: "button" },
       text: `${p} points`,
     });
     b.addEventListener("click", () => {
       state.pointsToWin = p;
-      renderSummary();
       // refresh buttons
       points.querySelectorAll("button").forEach((x) => (x.className = x.className.replace(/bg-emerald-700.*|border-emerald-600/g, "border-slate-200")));
       b.className = "px-3 py-2 rounded-xl border bg-emerald-700 text-white border-emerald-600";
@@ -712,7 +676,7 @@ function SettingsPanel(onStart: (s: Settings) => void) {
   const sizes = h("div", { class: "flex flex-wrap gap-10" });
   (["small", "medium", "large"] as PaddleSizeKey[]).forEach((k) => {
     const box = h("button", {
-      class: "px-2 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 flex items-end gap-2",
+      class: "px-2 py-2 rounded-xl border border-slate-200 hover:bg-emerald-400 flex items-end gap-2",
       attributes: { type: "button", title: k },
     });
     const bar = h("div", { class: "w-3 bg-emerald-700 rounded" });
@@ -721,7 +685,6 @@ function SettingsPanel(onStart: (s: Settings) => void) {
     box.append(bar, label);
     box.addEventListener("click", () => {
       state.paddleSize = k;
-      renderSummary();
       sizes.querySelectorAll("button").forEach((x) => x.classList.remove("ring-2", "ring-emerald-300"));
       box.classList.add("ring-2", "ring-emerald-300");
     });
@@ -737,7 +700,6 @@ function SettingsPanel(onStart: (s: Settings) => void) {
   freeChk.checked = state.freeMove;
   freeChk.addEventListener("change", () => {
     state.freeMove = freeChk.checked;
-    renderSummary();
   });
   freeWrap.append(freeChk, freeLbl);
   paddleWrap.append(freeWrap);
@@ -751,9 +713,10 @@ function SettingsPanel(onStart: (s: Settings) => void) {
 
   const sides = h("div", { class: "w-full flex flex-row items-center justify-around" });
   const leftSidePlayer = h("div", { class: "w-20 flex-none", text: state.me.alias });
-  const rightSidePlayer = h("div", { class: "w-20 flex-none", text: "Opponent" });
+  const rightSidePlayer = h("div", { class: "w-20 flex-none", text: state.opponent?.alias ?? "Opponent" });
+
   const sideBtn = h("button", {
-    class: "px-3 py-2 rounded-xl bg-emerald-700 text-white border border-slate-200 hover:bg-slate-50 flex items-center gap-2",
+    class: "px-3 py-2 rounded-xl bg-emerald-700 text-white border border-slate-200 hover:bg-emerald-400 flex items-center gap-2",
     attributes: { type: "button" },
   });
   const sideIcon = h("i", { class: "fa-solid fa-right-left" });
@@ -761,14 +724,13 @@ function SettingsPanel(onStart: (s: Settings) => void) {
   sideBtn.addEventListener("click", () => {
     if (state.mySide === "left") {
       state.mySide = "right";
-      leftSidePlayer.textContent = "Opponent";
+      leftSidePlayer.textContent = state.opponent?.alias ?? "Opponent";
       rightSidePlayer.textContent = state.me.alias;
     } else {
       state.mySide = "left";
       leftSidePlayer.textContent = state.me.alias;
-      rightSidePlayer.textContent = "Opponent";
+      rightSidePlayer.textContent = state.opponent?.alias ?? "Opponent";
     }
-    renderSummary();
   });
   sides.append(leftSidePlayer, sideBtn, rightSidePlayer);
   sideWrap.append(sides);
@@ -785,36 +747,8 @@ function SettingsPanel(onStart: (s: Settings) => void) {
 
   const summary = h("div", { class: "text-sm text-slate-600 pt-1" });
 
-  const setMode = (m: GameMode) => {
-    state.mode = m;
-    mode2d.className = "px-3 py-2 rounded-xl border " + (m === "2d" ? "bg-emerald-700 text-white border-emerald-600" : "border-slate-200 hover:bg-slate-50");
-    mode3d.className = "px-3 py-2 rounded-xl border " + (m === "3d" ? "bg-emerald-700 text-white border-emerald-600" : "border-slate-200 hover:bg-slate-50");
-    renderSummary();
-  };
-
-  setMode("2d");
-  mode2d.addEventListener("click", () => setMode("2d"));
-  mode3d.addEventListener("click", () => setMode("3d"));
-  modeWrap.append(modes);
-  rightWrap.append(modeWrap);
-  rightWrap.append(h("div", { class: "h-0.25 w-[60%] my-2 bg-emerald-700/20" }));
-
   // Summary + Start
-  function renderSummary() {
-    // summary.textContent = `Opponent: ${state.opponent?.alias ?? "—"} • To ${state.pointsToWin} • ${state.paddleSize} paddle • You on ${state.mySide} • ${
-    //   state.freeMove ? "free move" : "classic"
-    // } • ${state.mode.toUpperCase()}`;
-  }
-  renderSummary();
-  const startBtn = h("button", {
-    class: "mt-1 px-4 py-3 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-40",
-    attributes: { type: "button", disabled: "true" },
-    text: "Start match",
-  });
-  const canStart = () => {
-    const ok = !!state.opponent;
-    startBtn.toggleAttribute("disabled", !ok);
-  };
+
   const observeOpponent = new MutationObserver(canStart);
   observeOpponent.observe(results, { childList: true, subtree: true });
   // simpler: also run after every render
@@ -828,6 +762,9 @@ function SettingsPanel(onStart: (s: Settings) => void) {
 
   right.append(summary, startBtn);
   mount(wrap, left, right);
+
+  canStart(); // <-- add this line so Start enables if opponent is prefilled
+
   return { el: wrap };
 }
 
@@ -864,8 +801,10 @@ function MatchHeader(me: User, opp: User, mySide: Side, getScores: () => { left:
    Match Views
 ============================================================================ */
 function GameView2D(root: HTMLElement, me: User, opp: User, settings: Settings) {
-  const wrap = h("div", { class: "h-[calc(100vh-6rem)] w-full grid place-items-center" }); // inside AppShell padding
-  const canvas = h("canvas", { class: "rounded-xl shadow border border-emerald-100 bg-white" }) as HTMLCanvasElement;
+  const wrap = h("div", { class: "flex-1 min-h-0 grid place-items-center bg-emerald-50" }); // inside AppShell padding
+  const canvas = h("canvas", {
+    class: "block rounded-md shadow border border-emerald-100 bg-white",
+  }) as HTMLCanvasElement;
 
   const header = MatchHeader(me, opp, settings.mySide, () => game.getScores());
   mount(root, header.el, mount(wrap, canvas));
@@ -883,50 +822,52 @@ function GameView2D(root: HTMLElement, me: User, opp: User, settings: Settings) 
   return () => game.dispose();
 }
 
-function GameView3D(root: HTMLElement, me: User, opp: User, settings: Settings) {
-  const header = MatchHeader(me, opp, settings.mySide, () => game.getScores());
-
-  // vertical screens side-by-side
-  const grids = h("div", { class: "grid grid-cols-1 md:grid-cols-2 gap-2 p-2" });
-  const cL = h("canvas", { class: "w-full aspect-[9/16] rounded-xl border border-emerald-100 shadow" }) as HTMLCanvasElement;
-  const cR = h("canvas", { class: "w-full aspect-[9/16] rounded-xl border border-emerald-100 shadow" }) as HTMLCanvasElement;
-
-  mount(root, header.el, mount(grids, cL, cR));
-
-  const game = new Game3D(cL, cR, header.el, settings.mySide, settings.paddleSize, settings.pointsToWin, settings.freeMove);
-  game.init().then(() => {
-    // live score refresh
-    const pump = () => {
-      header.update();
-      requestAnimationFrame(pump);
-    };
-    requestAnimationFrame(pump);
-  });
-
-  // Space toggles pause in Game3D already
-  return () => game.dispose();
-}
-
 /* =========================================================================
    Main exported view
 ============================================================================ */
 export const PlayView: View = (root: HTMLElement) => {
-  root.className = "p-6";
-  const holder = h("div", { class: "max-w-6xl mx-auto" });
+  const holder = h("div", { class: "flex flex-col gap-2" });
   root.replaceChildren(holder);
 
-  const me: User = { id: 1, alias: "You", avatar: "/user.png" };
+  // Consume preset once
+  const preset = _playPreset;
+  _playPreset = null;
+
+  // Me default if not provided by preset
+  const defaultMe: User = { id: 1, alias: "You", avatar: "/user.png" };
+
+  // Build prefill for SettingsPanel depending on preset
+  let prefill: Partial<Settings> | null = null;
+  if (preset?.kind === "duel") {
+    prefill = {
+      me: preset.me ?? defaultMe,
+      opponent: preset.opponent,
+      mySide: "left",
+    };
+  } else if (preset?.kind === "tournament") {
+    prefill = {
+      me: preset.p1, // player 1 on the left
+      opponent: preset.p2, // player 2 on the right
+      mySide: "left",
+      pointsToWin: preset.pointsToWin ?? 3,
+    };
+  }
 
   // STEP 1: settings panel
-  const settings = SettingsPanel((s) => {
-    // clear and move to game mode
+  const settings = SettingsPanel(prefill, (s) => {
+    // Go to game mode with the chosen players
     holder.replaceChildren();
+    const me = s.me; // <-- use prefilled/custom me
     const opp = s.opponent!;
-    const unmount = s.mode === "2d" ? GameView2D(holder, me, opp, s) : GameView3D(holder, me, opp, s);
 
-    // optional: add a small back button to return to settings
+    const unmount = s.mode === "2d" ? GameView2D(holder, me, opp, s) : GameView2D(holder, me, opp, s); // 3D can be wired later
+
     const backBar = h("div", { class: "mt-3 flex justify-center" });
-    const back = h("button", { class: "px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-50", attributes: { type: "button" }, text: "Back to settings" });
+    const back = h("button", {
+      class: "px-3 py-2 rounded-md text-white bg-rose-600 border border-slate-200 hover:bg-rose-500",
+      attributes: { type: "button" },
+      text: "Cancel Match",
+    });
     back.addEventListener("click", () => {
       unmount?.();
       holder.replaceChildren(settings.el);

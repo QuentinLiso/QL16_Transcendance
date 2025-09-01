@@ -1,6 +1,7 @@
 // src/views/TournamentsView.ts
 import { domElem as h, mount } from "../ui/DomElement";
 import { Avatar } from "../ui/Avatar";
+import { setPlayPreset } from "./PlayView";
 
 /* =========================================================
    Types (UI-only; pure dummy data, no API)
@@ -231,6 +232,10 @@ function readyQueue(bracket: Bracket): Match[] {
   );
   q.sort((a, b) => a.round - b.round || a.order - b.order);
   return q;
+}
+
+function findPlayer(players: Player[], id: Id | null | undefined) {
+  return players.find((p) => p.id === id) ?? { id: -1, alias: "TBD", avatar: null };
 }
 
 function nameOf(players: Player[], id: Id | null | undefined) {
@@ -603,13 +608,14 @@ export function TournamentsView(root: HTMLElement) {
       const m = findMatch(state.bracket, state.selectedMatchId)!;
       const L = resolveSource(m.left, state.bracket);
       const R = resolveSource(m.right, state.bracket);
-      const lName = isPlayer(L) ? nameOf(state.players, L.playerId) : "TBD";
-      const rName = isPlayer(R) ? nameOf(state.players, R.playerId) : "TBD";
+
+      const lPlayer: Player = isPlayer(L) ? findPlayer(state.players, L.playerId) : { id: -1, alias: "TBD", avatar: null };
+      const rPlayer: Player = isPlayer(R) ? findPlayer(state.players, R.playerId) : { id: -1, alias: "TBD", avatar: null };
 
       const title = h("div", { class: "text-sm text-emerald-900/80 mb-1", text: `Round ${m.round + 1} • Match ${m.order + 1}` });
       const rows = h("div", { class: "space-y-2" });
       const row = (label: string) => h("div", { class: "px-3 py-2 rounded-lg bg-white/70 border border-emerald-100 truncate break-all", text: label });
-      rows.append(row(lName), row(rName));
+      rows.append(row(lPlayer.alias), row(rPlayer.alias));
 
       // Actions: enable when logical
       const actions = h("div", { class: "mt-3 flex flex-col gap-2" });
@@ -625,8 +631,8 @@ export function TournamentsView(root: HTMLElement) {
 
       const readyOrInProg = m.status === "ready" || m.status === "in_progress";
       const start = make(m.status === "in_progress" ? "Resume match" : "Start match", "fa-play", "indigo");
-      const winL = make(`Set winner: ${lName}`, "fa-trophy", "green");
-      const winR = make(`Set winner: ${rName}`, "fa-trophy", "green");
+      const winL = make(`Set winner: ${lPlayer.alias}`, "fa-trophy", "green");
+      const winR = make(`Set winner: ${rPlayer.alias}`, "fa-trophy", "green");
       const clear = make("Clear result", "fa-undo", "red");
 
       start.toggleAttribute("disabled", !readyOrInProg);
@@ -641,6 +647,13 @@ export function TournamentsView(root: HTMLElement) {
           saveState(state);
           right.render();
           center.render();
+          const p1 = { id: lPlayer.id, alias: lPlayer.alias, avatar: lPlayer.avatar };
+          const p2 = { id: rPlayer.id, alias: rPlayer.alias, avatar: rPlayer.avatar };
+
+          setPlayPreset({ kind: "tournament", p1, p2 });
+          window.location.hash = "#/play";
+        } else if (m.status === "in_progress") {
+          window.location.hash = "#/play";
         }
       });
       winL.addEventListener("click", () => {

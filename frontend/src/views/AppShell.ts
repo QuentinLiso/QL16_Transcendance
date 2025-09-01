@@ -74,7 +74,9 @@ const SideBar = () => {
   ];
   links.forEach((l) => nav.appendChild(l.el));
 
-  const logoutBtn = Button("Logout", { variant: "danger", onClick: () => logout() });
+  const logoutBtn = domElem("button", { class: "px-3 py-4 bg-emerald-700 rounded-md text-white font-semibold hover:bg-emerald-700/50", text: "Logout" });
+  logoutBtn.addEventListener("click", () => logout());
+  logoutBtn.append(domElem("i", { class: "ml-3 fa-solid fa-right-from-bracket" }));
 
   wrap.append(brandBox, nav, logoutBtn);
 
@@ -149,7 +151,7 @@ const TopBar = (me: PublicUser) => {
 const MainArea = (me: PublicUser) => {
   const box = domElem("main", { class: "flex-1 flex flex-col overflow-auto" });
   const topBar = TopBar(me);
-  const outlet = domElem("div", { class: "px-8 py-8" });
+  const outlet = domElem("div", { class: "px-8 py-8 flex flex-col justify-between" });
   mount(box, topBar.wrap, outlet);
   return { box, outlet, topBar };
 };
