@@ -1,26 +1,161 @@
-// index.ts
-import Fastify, { FastifyReply, FastifyRequest } from "fastify";
-import { setRouter } from "./routes/Router";
-import { db } from "./utils/db";
-import dotenv from "dotenv";
+import fastify from "fastify";
+import fastifyJwt from "@fastify/jwt";
+import fastifyCors from "@fastify/cors";
+import bcrypt from "bcryptjs";
+import Database from "better-sqlite3";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { mkdirSync } from "fs";
 
-// Load env and create the server instance
-dotenv.config({ quiet: true });
-const fastify = Fastify({ logger: false });
+// Fix __dirname for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Register plugins and routes
-setRouter(fastify);
-db.pragma("foreign_keys = ON");
+async function main() {
+  const app = fastify({ logger: true });
+  const PORT = 3000;
 
-// Start the server
-const start = async () => {
-  try {
-    await fastify.listen({ port: 5000, host: "0.0.0.0" });
-    console.log("Backend server running at http://localhost:5000");
-  } catch (e) {
-    console.log(e);
-    process.exit(1);
+  /* --------------------------------------------------------------
+   *  PLUGINS
+   * --------------------------------------------------------------*/
+  await app.register(fastifyCors, { origin: true }); // allow all origins in dev
+
+  app.register(fastifyJwt, {
+    secret: process.env.JWT_SECRET || "devsecret123",
+    sign: { expiresIn: "1h" },
+  });
+
+  /* --------------------------------------------------------------
+   *  DATABASE
+   * --------------------------------------------------------------*/
+  mkdirSync("./data", { recursive: true });
+  const dbPath = process.env.DB_PATH || "./data/main.db";
+  const db = new Database(dbPath);
+  app.decorate("db", db);
+
+  const migrationPath = path.join(
+    __dirname,
+    "../migrations/001_create_users.sql"
+  );
+  if (fs.existsSync(migrationPath)) {
+    try {
+      db.exec(fs.readFileSync(migrationPath, "utf8"));
+      app.log.info("✅ SQL migration applied");
+    } catch (e) {
+      app.log.error("❌ Migration error", e);
+    }
+  } else {
+    app.log.warn("❌ Migration file not found: " + migrationPath);
   }
-};
 
-start();
+  /* --------------------------------------------------------------
+   *  VALIDATION CONSTANTS
+   * --------------------------------------------------------------*/
+  const USERNAME_REGEX = /^[A-Za-z0-9_-]{3,30}$/; // 3‑30 chars, alphanum + _ -
+  const EMAIL_REGEX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/i; // simple but solid
+  const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{6,128}$/; // 6‑128, strength
+
+  /* --------------------------------------------------------------
+   *  REGISTER
+   * --------------------------------------------------------------*/
+  app.post("/api/register", async (req, rep) => {
+    const { pseudo, email, password } = req.body as {
+      pseudo: string;
+      email: string;
+      password: string;
+    };
+
+    const pseudoNorm = pseudo?.trim();
+    const emailNorm = email?.trim().toLowerCase();
+
+    // --- Validation ---
+    if (!USERNAME_REGEX.test(pseudoNorm || "")) {
+      return rep
+        .code(400)
+        .send({ error: "Username: 3‑30 letters, numbers, _ or -" });
+    }
+    if (!PASSWORD_REGEX.test(password || "")) {
+      return rep.code(400).send({
+        error: "Password 6‑128 chars, with upper, lower and digit",
+      });
+    }
+    if (!EMAIL_REGEX.test(emailNorm || "") || emailNorm.length > 254) {
+      return rep.code(400).send({ error: "Invalid email address" });
+    }
+
+    // --- Duplicate check (graceful) ---
+    const exists = db
+      .prepare("SELECT id FROM users WHERE email = ? OR pseudo = ?")
+      .get(emailNorm, pseudoNorm) as { id: number } | undefined;
+    if (exists) {
+      return rep
+        .code(409)
+        .send({ error: "Email or username already in use" });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+
+    try {
+      db.prepare(
+        "INSERT INTO users (email, pwd_hash, pseudo) VALUES (?, ?, ?)"
+      ).run(emailNorm, hash, pseudoNorm);
+
+      return rep.code(201).send({ ok: true });
+    } catch (err: any) {
+      app.log.error("Registration error", err);
+      return rep.code(500).send({ error: "Internal server error" });
+    }
+  });
+
+  /* --------------------------------------------------------------
+   *  LOGIN
+   * --------------------------------------------------------------*/
+  app.post("/api/login", async (req, rep) => {
+    const { email, password } = req.body as {
+      email: string;
+      password: string;
+    };
+
+    const emailNorm = email.trim().toLowerCase();
+
+    const row = db.prepare(
+      "SELECT id, pwd_hash, pseudo FROM users WHERE email = ?"
+    ).get(emailNorm) as | {
+      id: number;
+      pwd_hash: string;
+      pseudo: string;
+    } | undefined;
+
+    if (!row || !(await bcrypt.compare(password, row.pwd_hash))) {
+      return rep.code(401).send({ error: "Invalid credentials" });
+    }
+
+    const token = app.jwt.sign({ sub: row.id, email: emailNorm, pseudo: row.pseudo });
+    return { token };
+  });
+
+  /* --------------------------------------------------------------
+   *  AUTH MIDDLEWARE & PROTECTED ENDPOINT
+   * --------------------------------------------------------------*/
+  app.decorate("auth", async (req: any, rep: any) => {
+    try {
+      await req.jwtVerify();
+    } catch {
+      return rep.code(401).send({ error: "Missing or invalid token" });
+    }
+  });
+
+  app.get("/api/me", { preHandler: app.auth }, async (req) => {
+    return { user: req.user };
+  });
+
+  /* --------------------------------------------------------------
+   *  SERVER START
+   * --------------------------------------------------------------*/
+  app.listen({ port: PORT, host: "0.0.0.0" }, () => {
+    console.log(`✅ Server up on http://localhost:${PORT}`);
+  });
+}
+
+main();
